@@ -1,0 +1,41 @@
+/* src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-serif: 'IM Fell English', 'Noto Serif TC', Georgia, serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-serif);
+  -webkit-font-smoothing: antialiased;
+  background: #0d0518;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0d0518;
+}
+::-webkit-scrollbar-thumb {
+  background: #3d1f00;
+  border-radius: 3px;
+}
+
+/* Selection */
+::selection {
+  background: rgba(146, 94, 28, 0.3);
+  color: #fde68a;
+}
+
+/* Font utility */
+.font-serif {
+  font-family: var(--font-serif);
+}
