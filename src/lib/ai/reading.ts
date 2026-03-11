@@ -48,7 +48,7 @@ const TAROT_MASTER_PERSONA = `你是一名有15年經驗的塔羅占卜師，長
 
 const client = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
+  apiKey: process.env.OPENROUTER_API_KEY || "missing-openrouter-key",
 });
 
 function includesAny(text: string, words: string[]): boolean {

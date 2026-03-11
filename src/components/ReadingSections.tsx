@@ -480,7 +480,7 @@ export default function ReadingSections({
       ) : null}
 
       {/* ── Q&A Bonus ─────────────────────────────────────── */}
-      {hasQa && (
+      {hasQa ? (
         <SectionBox title="延伸問答" icon="💬">
           <div className="space-y-4">
             {qaBonus!.map((qa, i) => (
@@ -502,10 +502,12 @@ export default function ReadingSections({
             ))}
           </div>
         </SectionBox>
-      )}
+      ) : showPaywall ? (
+        <LockedSection title="延伸問答" lines={3} />
+      ) : null}
 
       {/* ── Paywall CTA ─────────────────────────────────────── */}
-      {showPaywall && !hasDeep && <PaywallCTA readingId={readingId} />}
+      {showPaywall && (!hasDeep || !hasTimeline || !hasQa) && <PaywallCTA readingId={readingId} />}
 
     </div>
   );

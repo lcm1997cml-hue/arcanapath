@@ -12,6 +12,7 @@ create table if not exists public.readings (
   free_reading jsonb not null,
   deep_reading jsonb,
   is_paid boolean not null default false,
+  paid_plan text,
   created_at timestamp with time zone not null default now()
 );
 `;

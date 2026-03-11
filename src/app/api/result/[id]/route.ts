@@ -20,17 +20,22 @@ export async function GET(
     const user = await getCurrentUser();
     const limits = getUsageLimits(user);
 
-    // If user is admin or already paid, return full result
-    if (!limits.showPaywall || result.isPaid) {
+    const paidPlan = (result as any)?.paidPlan as "19" | "39" | "88" | undefined;
+
+    // If user is admin, return full result
+    if (!limits.showPaywall) {
       return NextResponse.json({ ok: true, data: result });
     }
 
-    // Otherwise strip paid content
+    const unlockDeep = paidPlan === "19" || paidPlan === "39" || paidPlan === "88";
+    const unlockTimeline = paidPlan === "39" || paidPlan === "88";
+    const unlockQa = paidPlan === "88";
+
     const freeResult = {
       ...result,
-      deepReading: undefined,
-      timelineReport: undefined,
-      qaBonus: undefined,
+      deepReading: unlockDeep ? result.deepReading : undefined,
+      timelineReport: unlockTimeline ? result.timelineReport : undefined,
+      qaBonus: unlockQa ? result.qaBonus : undefined,
     };
 
     return NextResponse.json({ ok: true, data: freeResult });

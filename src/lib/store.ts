@@ -16,10 +16,16 @@ type ReadingRow = {
   free_reading: unknown;
   deep_reading: unknown;
   is_paid: boolean;
+  paid_plan?: "19" | "39" | "88" | null;
   created_at: string;
 };
 
 function fromRow(row: ReadingRow): ReadingResult {
+  const deepPayload = (row.deep_reading ?? null) as any;
+  const deepReading = deepPayload?.deepReading ?? deepPayload ?? null;
+  const timelineReport = deepPayload?.timelineReport ?? null;
+  const qaBonus = Array.isArray(deepPayload?.qaBonus) ? deepPayload.qaBonus : [];
+
   return {
     id: row.id,
     userId: row.user_id ?? undefined,
@@ -27,10 +33,11 @@ function fromRow(row: ReadingRow): ReadingResult {
     topic: row.topic as any,
     cards: (row.cards ?? []) as any,
     freeReading: (row.free_reading ?? {}) as any,
-    deepReading: (row.deep_reading ?? undefined) as any,
-    timelineReport: ((row.deep_reading as any)?.timelineReport ?? undefined) as any,
-    qaBonus: ((row.deep_reading as any)?.qaBonus ?? undefined) as any,
+    deepReading: deepReading as any,
+    timelineReport: timelineReport as any,
+    qaBonus: qaBonus as any,
     isPaid: !!row.is_paid,
+    paidPlan: row.paid_plan ?? undefined,
     createdAt: row.created_at,
   } as ReadingResult;
 }
@@ -53,6 +60,7 @@ export async function saveReading(result: ReadingResult): Promise<void> {
       free_reading: result.freeReading,
       deep_reading: deepPayload,
       is_paid: !!result.isPaid,
+      paid_plan: ((result as any).paidPlan ?? null) as "19" | "39" | "88" | null,
       created_at: result.createdAt,
     },
     { onConflict: "id" }
@@ -65,7 +73,7 @@ export async function getReading(id: string): Promise<ReadingResult | undefined>
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("readings")
-    .select("id,user_id,question,topic,cards,free_reading,deep_reading,is_paid,created_at")
+    .select("id,user_id,question,topic,cards,free_reading,deep_reading,is_paid,paid_plan,created_at")
     .eq("id", id)
     .maybeSingle();
 
@@ -78,7 +86,7 @@ export async function getReadingsByUser(userId: string): Promise<ReadingResult[]
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("readings")
-    .select("id,user_id,question,topic,cards,free_reading,deep_reading,is_paid,created_at")
+    .select("id,user_id,question,topic,cards,free_reading,deep_reading,is_paid,paid_plan,created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -86,9 +94,15 @@ export async function getReadingsByUser(userId: string): Promise<ReadingResult[]
   return (data ?? []).map((row) => fromRow(row as ReadingRow));
 }
 
-export async function updateReadingPaid(id: string, isPaid = true): Promise<void> {
+export async function updateReadingPaid(
+  id: string,
+  isPaid = true,
+  paidPlan?: "19" | "39" | "88"
+): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.from("readings").update({ is_paid: isPaid }).eq("id", id);
+  const payload: { is_paid: boolean; paid_plan?: "19" | "39" | "88" } = { is_paid: isPaid };
+  if (paidPlan) payload.paid_plan = paidPlan;
+  const { error } = await supabase.from("readings").update(payload).eq("id", id);
   if (error) throw error;
 }
 

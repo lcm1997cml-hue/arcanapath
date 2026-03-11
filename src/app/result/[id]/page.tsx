@@ -35,12 +35,36 @@ export default async function ResultPage({ params, searchParams }: Props) {
   const user     = await getCurrentUser();
   const policy   = getRolePolicy(user);
   const isPaidFlag = query?.paid === "1" || query?.paid === "true";
-  const paidPlan = isPaidFlag ? (query?.plan ?? query?.planId) : undefined;
-  const isPaidQuery =
-    isPaidFlag &&
-    (paidPlan === "19" || paidPlan === "39" || paidPlan === "88" || paidPlan === "starter" || paidPlan === "insight" || paidPlan === "master");
-  const isUnlocked = !policy.showPaywall || rawResult.isPaid || isPaidQuery;
-  const result   = isUnlocked ? rawResult : stripPaidContent(rawResult as any);
+  const queryPlan = isPaidFlag ? (query?.plan ?? query?.planId) : undefined;
+  const normalizedQueryPlan =
+    queryPlan === "19" || queryPlan === "39" || queryPlan === "88"
+      ? queryPlan
+      : queryPlan === "starter"
+      ? "19"
+      : queryPlan === "insight"
+      ? "39"
+      : queryPlan === "master"
+      ? "88"
+      : undefined;
+
+  const storedPlan = (rawResult as any)?.paidPlan as "19" | "39" | "88" | undefined;
+  const paidPlan = storedPlan ?? normalizedQueryPlan;
+  const isPaidQuery = !!normalizedQueryPlan && isPaidFlag;
+
+  const fullByPolicy = !policy.showPaywall;
+  const unlockDeep = fullByPolicy || paidPlan === "19" || paidPlan === "39" || paidPlan === "88";
+  const unlockTimeline = fullByPolicy || paidPlan === "39" || paidPlan === "88";
+  const unlockQa = fullByPolicy || paidPlan === "88";
+  const isUnlocked = fullByPolicy || (unlockDeep && unlockTimeline && unlockQa);
+
+  const result = fullByPolicy
+    ? rawResult
+    : {
+        ...stripPaidContent(rawResult as any),
+        deepReading: unlockDeep ? rawResult.deepReading : null,
+        timelineReport: unlockTimeline ? rawResult.timelineReport : null,
+        qaBonus: unlockQa ? rawResult.qaBonus : [],
+      };
   const topicLabel = TOPIC_LABELS[result.topic] ?? result.topic;
   const dateStr    = new Date(result.createdAt).toLocaleDateString("zh-HK", {
     year: "numeric", month: "long", day: "numeric",

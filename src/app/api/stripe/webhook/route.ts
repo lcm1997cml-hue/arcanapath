@@ -25,8 +25,11 @@ export async function POST(req: NextRequest) {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       const readingId = session.metadata?.readingId;
+      const paidPlan = session.metadata?.plan;
       if (readingId) {
-        await updateReadingPaid(readingId, true);
+        const normalizedPlan =
+          paidPlan === "19" || paidPlan === "39" || paidPlan === "88" ? paidPlan : undefined;
+        await updateReadingPaid(readingId, true, normalizedPlan);
       }
     }
 

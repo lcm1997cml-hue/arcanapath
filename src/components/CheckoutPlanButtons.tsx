@@ -2,24 +2,34 @@
 
 import React, { useState } from "react";
 
-const PLANS: Array<{ plan: "19" | "39" | "88"; label: string }> = [
+type PlanValue = "19" | "39" | "88";
+
+const PLANS: Array<{ plan: PlanValue; label: string }> = [
   { plan: "19", label: "HK$19 即可查看完整答案" },
   { plan: "39", label: "HK$39 三次完整解讀" },
   { plan: "88", label: "HK$88 人生深度版" },
 ];
 
-export default function CheckoutPlanButtons({ readingId }: { readingId: string }) {
+export default function CheckoutPlanButtons({
+  readingId,
+  plan,
+  buttonLabel,
+}: {
+  readingId: string;
+  plan?: PlanValue;
+  buttonLabel?: string;
+}) {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  const startCheckout = async (plan: "19" | "39" | "88") => {
-    setLoadingPlan(plan);
+  const startCheckout = async (targetPlan: PlanValue) => {
+    setLoadingPlan(targetPlan);
     setError("");
     try {
       const res = await fetch("/api/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ readingId, plan }),
+        body: JSON.stringify({ readingId, plan: targetPlan }),
       });
       const data = (await res.json()) as { ok: boolean; url?: string; error?: string };
       if (!res.ok || !data.ok || !data.url) {
@@ -34,9 +44,11 @@ export default function CheckoutPlanButtons({ readingId }: { readingId: string }
     }
   };
 
+  const plansToRender = plan ? PLANS.filter((p) => p.plan === plan) : PLANS;
+
   return (
     <div className="flex items-center gap-2 flex-wrap justify-end">
-      {PLANS.map(({ plan, label }) => (
+      {plansToRender.map(({ plan, label }) => (
         <button
           key={plan}
           onClick={() => startCheckout(plan)}
@@ -47,7 +59,7 @@ export default function CheckoutPlanButtons({ readingId }: { readingId: string }
             boxShadow: "0 3px 14px rgba(180,83,9,0.4), inset 0 1px 0 rgba(255,200,100,0.12)",
           }}
         >
-          {loadingPlan === plan ? "處理中…" : `🔓 ${label}`}
+          {loadingPlan === plan ? "處理中…" : `🔓 ${buttonLabel ?? label}`}
         </button>
       ))}
       {error && <div className="w-full text-right text-rose-400 text-xs font-serif">{error}</div>}

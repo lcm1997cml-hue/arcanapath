@@ -35,25 +35,33 @@ export default function ReadingFan({
 }: ReadingFanProps) {
   const count = Math.min(totalCards, 26);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+
+  const fanSpreadDeg = isMobile ? 104 : FAN_SPREAD_DEG;
+  const fanRadius = isMobile ? 270 : FAN_RADIUS;
+  const cardW = isMobile ? 44 : CARD_W;
+  const cardH = isMobile ? 74 : CARD_H;
+  const pivotOffset = isMobile ? 300 : PIVOT_OFFSET;
+  const risePx = isMobile ? 26 : RISE_PX;
 
   const cards = useMemo(() => {
     return Array.from({ length: count }, (_, i) => {
       const fraction  = count === 1 ? 0.5 : i / (count - 1);
-      const angleDeg  = -FAN_SPREAD_DEG / 2 + fraction * FAN_SPREAD_DEG;
+      const angleDeg  = -fanSpreadDeg / 2 + fraction * fanSpreadDeg;
       const angleRad  = (angleDeg * Math.PI) / 180;
-      const x = Math.sin(angleRad) * FAN_RADIUS;
-      const y = -Math.cos(angleRad) * FAN_RADIUS + PIVOT_OFFSET;
+      const x = Math.sin(angleRad) * fanRadius;
+      const y = -Math.cos(angleRad) * fanRadius + pivotOffset;
       return { i, angleDeg, x, y };
     });
-  }, [count]);
+  }, [count, fanRadius, fanSpreadDeg, pivotOffset]);
 
-  const containerW = FAN_RADIUS * 2 + CARD_W + 24;
-  const containerH = PIVOT_OFFSET + CARD_H * 0.6 + 24;
+  const containerW = fanRadius * 2 + cardW + 24;
+  const containerH = pivotOffset + cardH * 0.6 + 24;
   const canSelectMore = selectedIndices.length < maxSelect;
 
   return (
     <div
-      className="relative mx-auto touch-none"
+      className="relative mx-auto touch-pan-x"
       style={{ width: containerW, height: containerH }}
     >
       {cards.map(({ i, angleDeg, x, y }) => {
@@ -62,7 +70,7 @@ export default function ReadingFan({
         const isHovered   = hoveredIndex === i && !isDisabled;
 
         // Rise amount: selected > hovered > none
-        const riseAmount  = isSelected ? RISE_PX : isHovered ? RISE_PX * 0.55 : 0;
+        const riseAmount  = isSelected ? risePx : isHovered ? risePx * 0.55 : 0;
 
         return (
           <div
@@ -72,11 +80,11 @@ export default function ReadingFan({
             onMouseLeave={() => setHoveredIndex(null)}
             className="absolute transition-all"
             style={{
-              width:  CARD_W,
-              height: CARD_H,
-              left:   containerW / 2 + x - CARD_W / 2,
-              top:    y - CARD_H / 2,
-              transformOrigin: `50% ${PIVOT_OFFSET + CARD_H / 2}px`,
+              width:  cardW,
+              height: cardH,
+              left:   containerW / 2 + x - cardW / 2,
+              top:    y - cardH / 2,
+              transformOrigin: `50% ${pivotOffset + cardH / 2}px`,
               transform: `rotate(${angleDeg}deg) translateY(${-riseAmount}px)`,
               transitionDuration: isSelected ? "320ms" : "180ms",
               transitionTimingFunction: isSelected ? "cubic-bezier(0.34,1.56,0.64,1)" : "ease-out",
@@ -131,7 +139,7 @@ export default function ReadingFan({
                   <span
                     className="text-amber-300 font-serif select-none"
                     style={{
-                      fontSize: CARD_W * 0.42,
+                      fontSize: cardW * 0.42,
                       textShadow: "0 0 12px rgba(251,191,36,0.9), 0 0 24px rgba(251,191,36,0.4)",
                       lineHeight: 1,
                     }}

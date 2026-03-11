@@ -17,9 +17,18 @@ import CheckoutPlanButtons from "@/components/CheckoutPlanButtons";
 
 function TierCard({
   tier,
+  readingId,
 }: {
   tier: PricingTier;
+  readingId: string;
 }) {
+  const planMap: Record<string, "19" | "39" | "88"> = {
+    single: "19",
+    triple: "39",
+    deep: "88",
+  };
+  const plan = planMap[tier.id];
+
   return (
     <div
       className="rounded-2xl p-6 space-y-5 transition-all"
@@ -98,6 +107,8 @@ function TierCard({
           </div>
         ))}
       </div>
+
+      <CheckoutPlanButtons readingId={readingId} plan={plan} buttonLabel={tier.cta} />
 
     </div>
   );
@@ -179,7 +190,7 @@ export default function PaywallClientPage() {
             現在解鎖完整答案
           </div>
           {primary.map((tier) => (
-            <TierCard key={tier.id} tier={tier} />
+            <TierCard key={tier.id} tier={tier} readingId={readingId} />
           ))}
         </div>
 
@@ -193,18 +204,8 @@ export default function PaywallClientPage() {
         {/* Secondary tiers */}
         <div className="space-y-3">
           {secondary.map((tier) => (
-            <TierCard key={tier.id} tier={tier} />
+            <TierCard key={tier.id} tier={tier} readingId={readingId} />
           ))}
-        </div>
-
-        <div className="rounded-xl border border-amber-700/30 bg-amber-950/25 p-4 space-y-3">
-          <div className="text-amber-400/75 text-sm font-serif text-center">立即解鎖完整報告</div>
-          <CheckoutPlanButtons readingId={readingId} />
-          {!readingId && (
-            <div className="text-amber-700/65 text-xs font-serif text-center">
-              未提供 readingId，請由結果頁進入付款
-            </div>
-          )}
         </div>
 
         {/* Trust line */}
