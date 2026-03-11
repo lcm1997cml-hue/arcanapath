@@ -11,7 +11,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const result = getReading(id);
+    const result = await getReading(id);
 
     if (!result) {
       return NextResponse.json({ ok: false, error: "找不到此占卜結果" }, { status: 404 });

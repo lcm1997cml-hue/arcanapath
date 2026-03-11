@@ -4,6 +4,7 @@
 // =============================================================
 
 import { nanoid } from "nanoid";
+import OpenAI from "openai";
 import type { DrawnCard, Topic, ReadingResult } from "@/types/reading";
 import { normalizeResult } from "@/lib/reading/normalize";
 
@@ -44,6 +45,11 @@ const TAROT_MASTER_PERSONA = `你是一名有15年經驗的塔羅占卜師，長
 - 不要講以下空泛句式：你有資源要相信自己、你要保持正面、宇宙會帶領你、順其自然就好
 - 必須先直接回答問題，再做分析
 - 回覆必須是純 JSON，不要 markdown。`;
+
+const client = new OpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
 
 function includesAny(text: string, words: string[]): boolean {
   return words.some((w) => text.includes(w.toLowerCase()));
@@ -340,32 +346,26 @@ function mockByType(question: string, cards: DrawnCard[], type: QuestionType): R
 }
 
 async function callOpenAI(prompt: string): Promise<Record<string, unknown>> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY not configured");
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error("OPENROUTER_API_KEY not configured");
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
+  const messages = [
+    { role: "system" as const, content: TAROT_MASTER_PERSONA },
+    { role: "user" as const, content: prompt },
+  ];
+
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages,
+    temperature: 0.85,
+    max_tokens: 1800,
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
+      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "",
+      "X-Title": "ArcanaPath",
     },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      temperature: 0.78,
-      max_tokens: 2400,
-      messages: [
-        { role: "system", content: TAROT_MASTER_PERSONA },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
+  } as any);
 
-  if (!res.ok) {
-    throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
-  }
-
-  const data = await res.json();
-  const raw = data.choices?.[0]?.message?.content ?? "{}";
+  const raw = completion.choices?.[0]?.message?.content ?? "{}";
   const clean = raw.replace(/```json|```/g, "").trim();
   return JSON.parse(clean) as Record<string, unknown>;
 }
@@ -416,10 +416,15 @@ export async function generateReading(
     userIdArg
   );
 
-  const useMock = !process.env.OPENAI_API_KEY || process.env.USE_MOCK_AI === "true";
+  const hasOpenRouterKey = !!process.env.OPENROUTER_API_KEY;
+  const useMock = !hasOpenRouterKey || process.env.USE_MOCK_AI === "true";
   const { type, prompt, templateName } = selectPrompt(question, cards);
+  console.log("[AI] using model gpt-4o-mini");
   console.log("QUESTION TYPE:", type);
   console.log("PROMPT TEMPLATE:", templateName);
+  if (!hasOpenRouterKey) {
+    console.warn("[ai] using mock because no OPENROUTER key");
+  }
 
   let raw: Record<string, unknown>;
   try {

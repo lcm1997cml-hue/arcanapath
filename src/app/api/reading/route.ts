@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     });
 
     // ─── Save & increment usage ──────────────────────────────
-    saveReading(result as any);
+    await saveReading(result as any);
 
     if (user) {
       incrementUsage(user.id);

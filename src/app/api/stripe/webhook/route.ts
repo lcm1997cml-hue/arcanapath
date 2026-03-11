@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { getReading, saveReading } from "@/lib/store";
+import { updateReadingPaid } from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -26,10 +26,7 @@ export async function POST(req: NextRequest) {
       const session = event.data.object as Stripe.Checkout.Session;
       const readingId = session.metadata?.readingId;
       if (readingId) {
-        const reading = getReading(readingId);
-        if (reading) {
-          saveReading({ ...reading, isPaid: true });
-        }
+        await updateReadingPaid(readingId, true);
       }
     }
 

@@ -4,20 +4,92 @@
 // Replace with Prisma/Supabase calls in production.
 // ─────────────────────────────────────────────────────────────
 import type { ReadingResult, AppUser, UserRole } from "@/types";
+import { getSupabaseAdmin } from "./db";
 
 // ─── Readings store ──────────────────────────────────────────
-const readings = new Map<string, ReadingResult>();
+type ReadingRow = {
+  id: string;
+  user_id: string | null;
+  question: string;
+  topic: string;
+  cards: unknown;
+  free_reading: unknown;
+  deep_reading: unknown;
+  is_paid: boolean;
+  created_at: string;
+};
 
-export function saveReading(result: ReadingResult): void {
-  readings.set(result.id, result);
+function fromRow(row: ReadingRow): ReadingResult {
+  return {
+    id: row.id,
+    userId: row.user_id ?? undefined,
+    question: row.question,
+    topic: row.topic as any,
+    cards: (row.cards ?? []) as any,
+    freeReading: (row.free_reading ?? {}) as any,
+    deepReading: (row.deep_reading ?? undefined) as any,
+    timelineReport: ((row.deep_reading as any)?.timelineReport ?? undefined) as any,
+    qaBonus: ((row.deep_reading as any)?.qaBonus ?? undefined) as any,
+    isPaid: !!row.is_paid,
+    createdAt: row.created_at,
+  } as ReadingResult;
 }
 
-export function getReading(id: string): ReadingResult | undefined {
-  return readings.get(id);
+export async function saveReading(result: ReadingResult): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const deepPayload = {
+    deepReading: (result as any).deepReading ?? null,
+    timelineReport: (result as any).timelineReport ?? null,
+    qaBonus: (result as any).qaBonus ?? null,
+  };
+
+  const { error } = await supabase.from("readings").upsert(
+    {
+      id: result.id,
+      user_id: (result as any).userId ?? null,
+      question: result.question,
+      topic: result.topic,
+      cards: result.cards,
+      free_reading: result.freeReading,
+      deep_reading: deepPayload,
+      is_paid: !!result.isPaid,
+      created_at: result.createdAt,
+    },
+    { onConflict: "id" }
+  );
+
+  if (error) throw error;
 }
 
-export function getReadingsByUser(userId: string): ReadingResult[] {
-  return Array.from(readings.values()).filter((r) => r.userId === userId);
+export async function getReading(id: string): Promise<ReadingResult | undefined> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("readings")
+    .select("id,user_id,question,topic,cards,free_reading,deep_reading,is_paid,created_at")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return undefined;
+  return fromRow(data as ReadingRow);
+}
+
+export async function getReadingsByUser(userId: string): Promise<ReadingResult[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("readings")
+    .select("id,user_id,question,topic,cards,free_reading,deep_reading,is_paid,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map((row) => fromRow(row as ReadingRow));
+}
+
+export async function updateReadingPaid(id: string, isPaid = true): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from("readings").update({ is_paid: isPaid }).eq("id", id);
+  if (error) throw error;
 }
 
 // ─── Users store ─────────────────────────────────────────────

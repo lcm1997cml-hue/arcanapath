@@ -18,7 +18,7 @@ export default async function DashboardPage() {
   if (!user) redirect("/login");
 
   const history: ReadingResult[] = user.role !== "visitor"
-    ? getReadingsByUser(user.id)
+    ? await getReadingsByUser(user.id)
     : [];
 
   const dailyLimit = user.role === "admin" ? "∞" : user.role === "member" ? "3" : "1";

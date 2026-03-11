@@ -28,7 +28,7 @@ export default async function ResultPage({ params, searchParams }: Props) {
   const query = await searchParams;
 
   // ── Fetch ──────────────────────────────────────────────────
-  const rawResult = getReading(id);
+  const rawResult = await getReading(id);
   if (!rawResult) notFound();
 
   // ── Auth / paywall ─────────────────────────────────────────
