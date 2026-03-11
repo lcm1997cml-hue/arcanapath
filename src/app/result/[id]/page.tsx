@@ -48,13 +48,14 @@ export default async function ResultPage({ params, searchParams }: Props) {
       : undefined;
 
   const storedPlan = (rawResult as any)?.paidPlan as "19" | "39" | "88" | undefined;
-  const paidPlan = storedPlan ?? normalizedQueryPlan;
+  const isPaidInDb = !!rawResult.isPaid;
+  const paidPlan = storedPlan;
   const isPaidQuery = !!normalizedQueryPlan && isPaidFlag;
 
   const fullByPolicy = !policy.showPaywall;
-  const unlockDeep = fullByPolicy || paidPlan === "19" || paidPlan === "39" || paidPlan === "88";
-  const unlockTimeline = fullByPolicy || paidPlan === "39" || paidPlan === "88";
-  const unlockQa = fullByPolicy || paidPlan === "88";
+  const unlockDeep = fullByPolicy || (isPaidInDb && (paidPlan === "19" || paidPlan === "39" || paidPlan === "88"));
+  const unlockTimeline = fullByPolicy || (isPaidInDb && (paidPlan === "39" || paidPlan === "88"));
+  const unlockQa = fullByPolicy || (isPaidInDb && paidPlan === "88");
   const isUnlocked = fullByPolicy || (unlockDeep && unlockTimeline && unlockQa);
 
   const result = fullByPolicy
@@ -77,7 +78,7 @@ export default async function ResultPage({ params, searchParams }: Props) {
       topicLabel={topicLabel}
       dateStr={dateStr}
       isPaidQuery={isPaidQuery}
-      paidPlan={paidPlan}
+      paidPlan={normalizedQueryPlan ?? paidPlan}
       isUnlocked={isUnlocked}
       userRole={user?.role}
       isLoggedIn={!!user}

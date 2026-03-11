@@ -95,14 +95,14 @@ export async function getReadingsByUser(userId: string): Promise<ReadingResult[]
 }
 
 export async function updateReadingPaid(
-  id: string,
-  isPaid = true,
-  paidPlan?: "19" | "39" | "88"
+  readingId: string,
+  plan: "19" | "39" | "88"
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const payload: { is_paid: boolean; paid_plan?: "19" | "39" | "88" } = { is_paid: isPaid };
-  if (paidPlan) payload.paid_plan = paidPlan;
-  const { error } = await supabase.from("readings").update(payload).eq("id", id);
+  const { error } = await supabase
+    .from("readings")
+    .update({ is_paid: true, paid_plan: plan })
+    .eq("id", readingId);
   if (error) throw error;
 }
 

@@ -21,15 +21,16 @@ export async function GET(
     const limits = getUsageLimits(user);
 
     const paidPlan = (result as any)?.paidPlan as "19" | "39" | "88" | undefined;
+    const isPaidInDb = !!result.isPaid;
 
     // If user is admin, return full result
     if (!limits.showPaywall) {
       return NextResponse.json({ ok: true, data: result });
     }
 
-    const unlockDeep = paidPlan === "19" || paidPlan === "39" || paidPlan === "88";
-    const unlockTimeline = paidPlan === "39" || paidPlan === "88";
-    const unlockQa = paidPlan === "88";
+    const unlockDeep = isPaidInDb && (paidPlan === "19" || paidPlan === "39" || paidPlan === "88");
+    const unlockTimeline = isPaidInDb && (paidPlan === "39" || paidPlan === "88");
+    const unlockQa = isPaidInDb && paidPlan === "88";
 
     const freeResult = {
       ...result,

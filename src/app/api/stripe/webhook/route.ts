@@ -21,15 +21,32 @@ export async function POST(req: NextRequest) {
   try {
     const payload = await req.text();
     const event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
+    console.log("[stripe webhook] event received", { type: event.type });
 
     if (event.type === "checkout.session.completed") {
+      console.log("[stripe webhook] checkout.session.completed");
       const session = event.data.object as Stripe.Checkout.Session;
       const readingId = session.metadata?.readingId;
-      const paidPlan = session.metadata?.plan;
-      if (readingId) {
-        const normalizedPlan =
-          paidPlan === "19" || paidPlan === "39" || paidPlan === "88" ? paidPlan : undefined;
-        await updateReadingPaid(readingId, true, normalizedPlan);
+      const plan = session.metadata?.plan;
+      console.log("[stripe webhook] readingId", readingId ?? null);
+      console.log("[stripe webhook] plan", plan ?? null);
+
+      if (!readingId) {
+        console.error("[stripe webhook] update failed", { reason: "missing readingId" });
+        return NextResponse.json({ ok: false, error: "missing readingId in metadata" }, { status: 400 });
+      }
+
+      if (plan !== "19" && plan !== "39" && plan !== "88") {
+        console.error("[stripe webhook] update failed", { reason: "invalid plan", plan });
+        return NextResponse.json({ ok: false, error: "invalid plan in metadata" }, { status: 400 });
+      }
+
+      try {
+        await updateReadingPaid(readingId, plan);
+        console.log("[stripe webhook] update success", { readingId, plan });
+      } catch (updateErr) {
+        console.error("[stripe webhook] update failed", updateErr);
+        return NextResponse.json({ ok: false, error: "failed to update reading payment status" }, { status: 500 });
       }
     }
 
