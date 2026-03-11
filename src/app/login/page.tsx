@@ -54,7 +54,7 @@ export default function LoginPage() {
           <Link href="/" className="text-amber-500 font-serif text-2xl font-semibold">
             ✦ ArcanaPath
           </Link>
-          <p className="text-amber-500/50 text-sm font-serif mt-2">登入帳戶</p>
+          <p className="text-amber-500/50 text-sm font-serif mt-2">管理員登入</p>
         </div>
 
         <div className="rounded-xl border border-amber-800/30 bg-amber-950/20 p-6 space-y-4">
@@ -96,10 +96,11 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-amber-600/50 text-sm font-serif">
-          未有帳戶？{" "}
-          <Link href="/register" className="text-amber-400 hover:text-amber-300">
-            免費註冊
-          </Link>
+          一般用戶無需註冊，前往{" "}
+          <Link href="/reading" className="text-amber-400 hover:text-amber-300">
+            占卜頁
+          </Link>{" "}
+          留下 email 即可開始
         </p>
       </div>
     </div>

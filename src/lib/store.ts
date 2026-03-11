@@ -197,3 +197,59 @@ export function incrementVisitorUsage(ip: string): void {
     visitorUsage.set(ip, entry);
   }
 }
+
+type LeadRow = {
+  id: string;
+  email: string;
+  usage_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export function normalizeLeadEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function isValidLeadEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export async function getLeadByEmail(email: string): Promise<LeadRow | null> {
+  const normalizedEmail = normalizeLeadEmail(email);
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id,email,usage_count,created_at,updated_at")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as LeadRow | null) ?? null;
+}
+
+export async function getOrCreateLeadByEmail(email: string): Promise<LeadRow> {
+  const normalizedEmail = normalizeLeadEmail(email);
+  const existing = await getLeadByEmail(normalizedEmail);
+  if (existing) return existing;
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("leads")
+    .insert({ email: normalizedEmail, usage_count: 0 })
+    .select("id,email,usage_count,created_at,updated_at")
+    .single();
+  if (error) throw error;
+  return data as LeadRow;
+}
+
+export async function incrementLeadUsage(email: string): Promise<number> {
+  const lead = await getOrCreateLeadByEmail(email);
+  const nextUsageCount = Number(lead.usage_count ?? 0) + 1;
+
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("leads")
+    .update({ usage_count: nextUsageCount })
+    .eq("id", lead.id);
+  if (error) throw error;
+  return nextUsageCount;
+}

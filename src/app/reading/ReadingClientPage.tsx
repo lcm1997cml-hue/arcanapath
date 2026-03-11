@@ -197,8 +197,18 @@ export default function ReadingClientPage() {
 
   const [phase,     setPhase]     = useState<Phase>("input");
   const [question,  setQuestion]  = useState("");
+  const [email, setEmail] = useState("");
   const [topic,     setTopic]     = useState<Topic>("love");
   const [error,     setError]     = useState("");
+
+  useEffect(() => {
+    try {
+      const savedEmail = localStorage.getItem("arcana_lead_email");
+      if (savedEmail) setEmail(savedEmail);
+    } catch {
+      // ignore localStorage errors
+    }
+  }, []);
 
   // Fan state
   const [fanOrder, setFanOrder]   = useState<{ cardIndex: number; reversed: boolean }[]>([]);
@@ -221,6 +231,14 @@ export default function ReadingClientPage() {
       return;
     }
     setError("");
+    const normalizedEmail = email.trim().toLowerCase();
+    try {
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        localStorage.setItem("arcana_lead_email", normalizedEmail);
+      }
+    } catch {
+      // ignore localStorage errors
+    }
     // Fisher-Yates on deck indices
     const indices = Array.from({ length: deck.length }, (_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
@@ -235,7 +253,7 @@ export default function ReadingClientPage() {
     );
     setSelected([]);
     setPhase("shuffle");
-  }, [question]);
+  }, [question, email]);
 
   // ── Fan select ─────────────────────────────────────────────
   const handleFanSelect = useCallback((index: number) => {
@@ -261,6 +279,7 @@ export default function ReadingClientPage() {
           question: question.trim(),
           topic,
           cards: serializeDrawnCards(drawnCards),
+          email: email.trim().toLowerCase(),
         }),
       });
       const data = await res.json();
@@ -354,6 +373,17 @@ export default function ReadingClientPage() {
               <div className="text-right text-amber-900/45 text-xs font-serif">{question.length}/200</div>
             </div>
 
+            <div className="space-y-2">
+              <label className="text-amber-400 font-serif text-sm block">電郵（免費次數識別）</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="w-full bg-black/25 border border-amber-800/45 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-900/60 font-serif text-sm focus:outline-none focus:border-amber-600/65 transition-colors"
+              />
+            </div>
+
             {/* Topic */}
             <div className="space-y-2">
               <label className="text-amber-400 font-serif text-sm block">主題</label>
@@ -390,7 +420,7 @@ export default function ReadingClientPage() {
             </button>
 
             <p className="text-center text-amber-900/40 text-xs font-serif">
-              訪客每日 1 次 · 免費註冊每日 3 次
+              只需留下 email，即可獲得 3 次免費占卜
             </p>
           </div>
         )}

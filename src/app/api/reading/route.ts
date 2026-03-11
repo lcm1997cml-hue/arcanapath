@@ -3,8 +3,15 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { generateReading } from "@/lib/reading/generate";
-import { saveReading, getVisitorUsage, incrementVisitorUsage, incrementUsage } from "@/lib/store";
-import { getCurrentUser, canDoReading } from "@/lib/auth";
+import {
+  saveReading,
+  incrementUsage,
+  getOrCreateLeadByEmail,
+  incrementLeadUsage,
+  isValidLeadEmail,
+  normalizeLeadEmail,
+} from "@/lib/store";
+import { getCurrentUser } from "@/lib/auth";
 import { deserializeDrawnCards } from "@/lib/tarot/utils";
 import type { Topic } from "@/types/reading";
 
@@ -12,7 +19,7 @@ export async function POST(req: NextRequest) {
   try {
     console.log("[reading] request received");
     const body = await req.json();
-    const { question, topic, cards: serializedCards } = body;
+    const { question, topic, cards: serializedCards, email } = body;
 
     // ─── Validate input ──────────────────────────────────────
     if (!question || typeof question !== "string" || question.trim().length < 3) {
@@ -36,18 +43,25 @@ export async function POST(req: NextRequest) {
     // ─── Auth & usage check ──────────────────────────────────
     const user = await getCurrentUser();
     console.log("[reading] user", user ? { id: user.id, role: user.role } : null);
-    const ip = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "unknown";
-    console.log("[reading] ip", ip);
-    const visitorUsage = getVisitorUsage(ip);
-    console.log("[reading] visitorUsage", visitorUsage);
-    const canRead = canDoReading(user, visitorUsage);
-    console.log("[reading] canDoReading", canRead);
+    const isAdmin = user?.role === "admin";
+    let leadEmail: string | null = null;
 
-    if (!canRead) {
-      const message = user
-        ? `你今日的免費抽牌次數已用盡（${user.role === "member" ? "每日3次" : "每日1次"}）`
-        : "訪客每日限免費抽牌1次，請登入或註冊獲得更多次數";
-      return NextResponse.json({ ok: false, error: message }, { status: 403 });
+    if (!isAdmin) {
+      if (typeof email !== "string" || !isValidLeadEmail(email)) {
+        return NextResponse.json(
+          { ok: false, error: "請先輸入有效電郵，即可獲得 3 次免費占卜" },
+          { status: 400 }
+        );
+      }
+
+      leadEmail = normalizeLeadEmail(email);
+      const lead = await getOrCreateLeadByEmail(leadEmail);
+      if ((lead.usage_count ?? 0) >= 3) {
+        return NextResponse.json(
+          { ok: false, error: "此電郵的 3 次免費占卜已用完" },
+          { status: 403 }
+        );
+      }
     }
 
     // ─── Deserialize cards ───────────────────────────────────
@@ -66,7 +80,7 @@ export async function POST(req: NextRequest) {
       question: question.trim(),
       topic: topic as Topic,
       cards: drawnCards,
-      userId: user?.id ?? null,
+      userId: isAdmin ? user?.id ?? null : null,
     });
     console.log("[reading] generateReading success", { id: result?.id });
 
@@ -76,10 +90,10 @@ export async function POST(req: NextRequest) {
     console.log("[reading] saveReading success");
 
     console.log("[reading] increment usage start");
-    if (user) {
+    if (isAdmin && user) {
       incrementUsage(user.id);
-    } else {
-      incrementVisitorUsage(ip);
+    } else if (leadEmail) {
+      await incrementLeadUsage(leadEmail);
     }
     console.log("[reading] increment usage success");
 

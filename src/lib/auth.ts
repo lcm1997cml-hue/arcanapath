@@ -1,47 +1,47 @@
 // src/lib/auth.ts
+import { cookies } from "next/headers";
 import type { AppUser, UserRole, UsageLimit } from "@/types";
 import { ROLE_LIMITS } from "@/types";
-import { createClient } from "@/lib/supabase/server";
+import { getUserById, getUserByEmail } from "@/lib/store";
+
+const ADMIN_SESSION_COOKIE = "arcana_admin_session";
+const DEFAULT_ADMIN_EMAIL = "admin@arcanapath.com";
+const DEFAULT_ADMIN_PASSWORD = "admin123";
 
 export async function getCurrentUser(): Promise<AppUser | null> {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const cookieStore = await cookies();
+    const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
+    if (!token) return null;
 
-    if (userError || !user) return null;
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role, is_active, display_name, daily_usage")
-      .eq("id", user.id)
-      .single();
-
-    const role = ((profile?.role as UserRole | undefined) ?? "member");
-    const dailyUsage = Number(profile?.daily_usage ?? 0);
-
-    return {
-      id: user.id,
-      email: user.email ?? "",
-      name:
-        profile?.display_name ??
-        (typeof user.user_metadata?.display_name === "string"
-          ? user.user_metadata.display_name
-          : typeof user.user_metadata?.name === "string"
-          ? user.user_metadata.name
-          : undefined),
-      role,
-      dailyUsage,
-      totalUsage: dailyUsage,
-      isActive: profile?.is_active ?? true,
-      createdAt: user.created_at ?? new Date().toISOString(),
-      lastActiveAt: user.last_sign_in_at ?? user.created_at ?? new Date().toISOString(),
+    const payload = JSON.parse(Buffer.from(token, "base64").toString("utf8")) as {
+      userId?: string;
     };
+    if (!payload?.userId) return null;
+
+    const user = getUserById(payload.userId);
+    if (!user || user.role !== "admin" || !user.isActive) return null;
+    return user;
   } catch {
     return null;
   }
+}
+
+export function createAdminSessionToken(userId: string): string {
+  return Buffer.from(JSON.stringify({ userId, ts: Date.now() })).toString("base64");
+}
+
+export async function authenticateAdmin(email: string, password: string): Promise<AppUser | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const adminEmail = (process.env.ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (normalizedEmail !== adminEmail) return null;
+  if (adminPassword && password !== adminPassword) return null;
+  if (!adminPassword && !password && DEFAULT_ADMIN_PASSWORD) return null;
+
+  const user = getUserByEmail(adminEmail);
+  if (!user || user.role !== "admin" || !user.isActive) return null;
+  return user;
 }
 
 // ─── Check if user is admin ───────────────────────────────────
