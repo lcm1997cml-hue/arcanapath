@@ -25,30 +25,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Invalid plan" }, { status: 400 });
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
-    const stripe = new Stripe(secretKey);
+    const appUrl =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "https://arcanapath-two.vercel.app";
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "hkd",
-            unit_amount: PLAN_CONFIG[plan].amount,
-            product_data: {
-              name: "ArcanaPath Tarot Reading",
-            },
-          },
+const stripe = new Stripe(secretKey);
+
+const session = await stripe.checkout.sessions.create({
+  mode: "payment",
+  line_items: [
+    {
+      quantity: 1,
+      price_data: {
+        currency: "hkd",
+        unit_amount: PLAN_CONFIG[plan].amount,
+        product_data: {
+          name: "ArcanaPath Tarot Reading",
         },
-      ],
-      metadata: {
-        readingId,
-        plan,
       },
-      success_url: `${appUrl}/result/${readingId}?paid=true&plan=${plan}`,
-      cancel_url: `${appUrl}/result/${readingId}`,
-    });
+    },
+  ],
+  metadata: {
+    readingId,
+    plan,
+  },
+  success_url: `${appUrl}/result/${readingId}?paid=true&plan=${plan}`,
+  cancel_url: `${appUrl}/result/${readingId}`,
+});
 
     if (!session.url) {
       return NextResponse.json({ ok: false, error: "Failed to create checkout URL" }, { status: 500 });
