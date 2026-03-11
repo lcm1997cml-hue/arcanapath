@@ -94,13 +94,6 @@ export default function LoginPage() {
           </button>
         </div>
 
-        {/* Demo credentials */}
-        <div className="rounded-lg border border-amber-900/30 bg-amber-950/10 p-3 text-xs font-serif text-amber-600/60 space-y-1">
-          <div className="text-amber-500/70 font-medium mb-1">測試帳號：</div>
-          <div>Admin: admin@arcanapath.com / 任何密碼</div>
-          <div>Member: demo@arcanapath.com / 任何密碼</div>
-        </div>
-
         <p className="text-center text-amber-600/50 text-sm font-serif">
           未有帳戶？{" "}
           <Link href="/register" className="text-amber-400 hover:text-amber-300">
