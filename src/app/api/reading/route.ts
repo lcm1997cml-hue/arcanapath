@@ -1,4 +1,7 @@
 // src/app/api/reading/route.ts
+"use client";
+
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { generateReading } from "@/lib/reading/generate";
