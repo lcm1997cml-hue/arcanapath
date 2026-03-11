@@ -1,4 +1,5 @@
 // src/app/api/result/[id]/route.ts
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getReading } from "@/lib/store";
 import { getCurrentUser } from "@/lib/auth";

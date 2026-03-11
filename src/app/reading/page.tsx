@@ -7,6 +7,7 @@
 //  - Phase layout is tighter / more centred
 //  - Shuffle animation has more steps and better visual weight
 // =============================================================
+export const dynamic = "force-dynamic";
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";

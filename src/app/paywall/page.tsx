@@ -4,6 +4,7 @@
 // Primary: HK$19 single unlock (most prominent)
 // Secondary: HK$39 triple pack, HK$88 deep life version
 // =============================================================
+export const dynamic = "force-dynamic";
 "use client";
 
 import React from "react";
