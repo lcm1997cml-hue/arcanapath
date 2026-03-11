@@ -4,7 +4,6 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { nanoid } from "nanoid";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -26,18 +25,24 @@ export default function RegisterPage() {
     setLoading(true);
     setError("");
     try {
-      // In production: call /api/auth/register
-      // For now: auto-login as demo member
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "demo@arcanapath.com", password: "demo" }),
+        body: JSON.stringify({ email, password, name }),
       });
       const data = await res.json();
       if (data.ok) {
-        router.push("/dashboard");
+        if (data.data?.needsEmailVerification) {
+          setError("註冊成功，請先到電郵完成驗證再登入");
+          return;
+        }
+        if (data.data?.role === "admin") {
+          router.push("/admin");
+        } else {
+          router.push("/dashboard");
+        }
       } else {
-        setError("註冊失敗，請稍後再試");
+        setError(data.error ?? "註冊失敗，請稍後再試");
       }
     } catch {
       setError("網絡錯誤，請重試");
