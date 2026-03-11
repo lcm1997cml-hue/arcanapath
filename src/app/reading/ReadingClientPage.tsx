@@ -200,11 +200,19 @@ export default function ReadingClientPage() {
   const [email, setEmail] = useState("");
   const [topic,     setTopic]     = useState<Topic>("love");
   const [error,     setError]     = useState("");
+  const [needsEmailCapture, setNeedsEmailCapture] = useState(false);
+  const [captureLoading, setCaptureLoading] = useState(false);
+  const [remainingFreeHint, setRemainingFreeHint] = useState<number | null>(null);
 
   useEffect(() => {
     try {
       const savedEmail = localStorage.getItem("arcana_lead_email");
       if (savedEmail) setEmail(savedEmail);
+      const savedRemaining = localStorage.getItem("arcana_remaining_free");
+      if (savedRemaining !== null) {
+        const parsed = Number(savedRemaining);
+        if (!Number.isNaN(parsed)) setRemainingFreeHint(parsed);
+      }
     } catch {
       // ignore localStorage errors
     }
@@ -231,6 +239,7 @@ export default function ReadingClientPage() {
       return;
     }
     setError("");
+    setNeedsEmailCapture(false);
     const normalizedEmail = email.trim().toLowerCase();
     try {
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
@@ -284,9 +293,29 @@ export default function ReadingClientPage() {
       });
       const data = await res.json();
       if (!data.ok) {
+        if (data.requireEmailCapture) {
+          setNeedsEmailCapture(true);
+          setPhase("input");
+        }
+        if (typeof data.remainingFree === "number") {
+          setRemainingFreeHint(data.remainingFree);
+          try {
+            localStorage.setItem("arcana_remaining_free", String(data.remainingFree));
+          } catch {
+            // ignore localStorage errors
+          }
+        }
         setError(data.error ?? "發生錯誤，請重試");
-        setPhase("preview");
+        if (!data.requireEmailCapture) setPhase("preview");
         return;
+      }
+      if (typeof data.remainingFree === "number") {
+        setRemainingFreeHint(data.remainingFree);
+        try {
+          localStorage.setItem("arcana_remaining_free", String(data.remainingFree));
+        } catch {
+          // ignore localStorage errors
+        }
       }
       const readingId = data?.id ?? data?.data?.id;
       if (!readingId) {
@@ -299,7 +328,49 @@ export default function ReadingClientPage() {
       setError("網絡錯誤，請重試");
       setPhase("preview");
     }
-  }, [drawnCards, question, topic, router]);
+  }, [drawnCards, question, topic, email, router]);
+
+  const handleCaptureEmail = useCallback(async () => {
+    if (!email.trim()) {
+      setError("請輸入有效電郵");
+      return;
+    }
+    setCaptureLoading(true);
+    setError("");
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const res = await fetch("/api/lead/capture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setError(data.error ?? "提交電郵失敗");
+        return;
+      }
+      if (typeof data?.data?.remaining === "number") {
+        setRemainingFreeHint(data.data.remaining);
+        try {
+          localStorage.setItem("arcana_remaining_free", String(data.data.remaining));
+        } catch {
+          // ignore localStorage errors
+        }
+      }
+      try {
+        localStorage.setItem("arcana_lead_email", normalizedEmail);
+      } catch {
+        // ignore localStorage errors
+      }
+      setNeedsEmailCapture(false);
+      router.push("/reading");
+      router.refresh();
+    } catch {
+      setError("網絡錯誤，請重試");
+    } finally {
+      setCaptureLoading(false);
+    }
+  }, [email, router]);
 
   // ── Phase step indicator ───────────────────────────────────
   const phaseOrder: Phase[] = ["input", "shuffle", "select", "preview"];
@@ -420,8 +491,28 @@ export default function ReadingClientPage() {
             </button>
 
             <p className="text-center text-amber-900/40 text-xs font-serif">
-              只需留下 email，即可獲得 3 次免費占卜
+              訪客可先免費試用 1 次；留下 email 可再獲得 3 次免費占卜
             </p>
+            {remainingFreeHint !== null && (
+              <p className="text-center text-amber-400/70 text-xs font-serif">
+                剩餘免費次數：{remainingFreeHint}
+              </p>
+            )}
+
+            {needsEmailCapture && (
+              <div className="rounded-xl border border-amber-700/40 bg-amber-950/30 p-4 space-y-3">
+                <p className="text-amber-300 text-sm font-serif">
+                  再留下 email，即可獲得 3 次免費占卜
+                </p>
+                <button
+                  onClick={handleCaptureEmail}
+                  disabled={captureLoading}
+                  className="w-full bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-serif font-semibold py-2.5 rounded-lg transition-colors"
+                >
+                  {captureLoading ? "提交中…" : "提交電郵並繼續"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

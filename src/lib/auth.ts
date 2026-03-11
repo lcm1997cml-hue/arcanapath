@@ -34,10 +34,9 @@ export function createAdminSessionToken(userId: string): string {
 export async function authenticateAdmin(email: string, password: string): Promise<AppUser | null> {
   const normalizedEmail = email.trim().toLowerCase();
   const adminEmail = (process.env.ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
-  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminPassword = process.env.ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD;
   if (normalizedEmail !== adminEmail) return null;
-  if (adminPassword && password !== adminPassword) return null;
-  if (!adminPassword && !password && DEFAULT_ADMIN_PASSWORD) return null;
+  if (password !== adminPassword) return null;
 
   const user = getUserByEmail(adminEmail);
   if (!user || user.role !== "admin" || !user.isActive) return null;

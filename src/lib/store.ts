@@ -202,6 +202,16 @@ type LeadRow = {
   id: string;
   email: string;
   usage_count: number;
+  free_limit: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type VisitorUsageRow = {
+  id: string;
+  visitor_id: string;
+  usage_count: number;
+  free_limit: number;
   created_at: string;
   updated_at: string;
 };
@@ -219,7 +229,7 @@ export async function getLeadByEmail(email: string): Promise<LeadRow | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .select("id,email,usage_count,created_at,updated_at")
+    .select("id,email,usage_count,free_limit,created_at,updated_at")
     .eq("email", normalizedEmail)
     .maybeSingle();
   if (error) throw error;
@@ -234,8 +244,8 @@ export async function getOrCreateLeadByEmail(email: string): Promise<LeadRow> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .insert({ email: normalizedEmail, usage_count: 0 })
-    .select("id,email,usage_count,created_at,updated_at")
+    .insert({ email: normalizedEmail, usage_count: 0, free_limit: 3 })
+    .select("id,email,usage_count,free_limit,created_at,updated_at")
     .single();
   if (error) throw error;
   return data as LeadRow;
@@ -250,6 +260,39 @@ export async function incrementLeadUsage(email: string): Promise<number> {
     .from("leads")
     .update({ usage_count: nextUsageCount })
     .eq("id", lead.id);
+  if (error) throw error;
+  return nextUsageCount;
+}
+
+export async function getOrCreateVisitorUsage(visitorId: string): Promise<VisitorUsageRow> {
+  const normalizedVisitorId = visitorId.trim();
+  const supabase = getSupabaseAdmin();
+  const { data: existing, error: queryError } = await supabase
+    .from("visitor_usage")
+    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at")
+    .eq("visitor_id", normalizedVisitorId)
+    .maybeSingle();
+  if (queryError) throw queryError;
+  if (existing) return existing as VisitorUsageRow;
+
+  const { data, error } = await supabase
+    .from("visitor_usage")
+    .insert({ visitor_id: normalizedVisitorId, usage_count: 0, free_limit: 1 })
+    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at")
+    .single();
+  if (error) throw error;
+  return data as VisitorUsageRow;
+}
+
+export async function incrementVisitorUsagePersistent(visitorId: string): Promise<number> {
+  const row = await getOrCreateVisitorUsage(visitorId);
+  const nextUsageCount = Number(row.usage_count ?? 0) + 1;
+
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("visitor_usage")
+    .update({ usage_count: nextUsageCount })
+    .eq("id", row.id);
   if (error) throw error;
   return nextUsageCount;
 }
