@@ -50,10 +50,28 @@ export default function ResultClientPage({
     []
   );
   const shareSummary = useMemo(() => {
-    const headline = result?.freeReading?.headline ?? "你正在進入人生轉折點";
-    return headline.slice(0, 20);
+    const raw =
+      result?.freeReading?.headline ??
+      result?.freeReading?.nextStep ??
+      result?.freeReading?.mainAxis ??
+      "你正在進入人生轉折點";
+    const cleaned = raw.replace(/\s+/g, " ").trim();
+    return cleaned.slice(0, 20);
   }, [result]);
   const shareCards = useMemo(() => (Array.isArray(result?.cards) ? result.cards.slice(0, 3) : []), [result]);
+  const platformUrls = useMemo(
+    () => ({
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareOrigin)}`,
+      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent("我啱啱做咗一次 AI 塔羅占卜")}&url=${encodeURIComponent(
+        shareOrigin
+      )}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(`我啱啱做咗一次 AI 塔羅占卜：${shareOrigin}`)}`,
+      instagram: "https://www.instagram.com/",
+      threads: "https://www.threads.net/",
+    }),
+    [shareOrigin]
+  );
+  const canWebShare = typeof navigator !== "undefined" && "share" in navigator;
 
   const awardShareBonus = useCallback(async () => {
     const res = await fetch("/api/reading/unlock-share", { method: "POST" });
@@ -66,11 +84,7 @@ export default function ResultClientPage({
         // ignore localStorage errors
       }
     }
-    if (data.awarded) {
-      setShareToast("🎉 已解鎖 +3 次占卜");
-    } else {
-      setShareToast("今日已領取過 +3 次占卜");
-    }
+    setShareToast(data.awarded ? "🎉 已解鎖 +3 次占卜" : "今日已領取分享獎勵");
     try {
       sessionStorage.setItem("arcana_post_share_message", "你已完成分享，快啲抽籤吧！");
     } catch {
@@ -100,8 +114,8 @@ export default function ResultClientPage({
     ctx.fillText(`問題：${questionText}`, 540, 180);
 
     ctx.fillStyle = "rgba(245, 213, 160, 0.8)";
-    ctx.font = "bold 68px serif";
-    ctx.fillText("呢個結果有啲恐怖", 540, 280);
+    ctx.font = "bold 62px serif";
+    ctx.fillText("ArcanaPath 塔羅結果", 540, 280);
 
     const cardY = 500;
     const cardW = 250;
@@ -166,6 +180,14 @@ export default function ResultClientPage({
     setUnlockingShare(false);
   }, [awardShareBonus, shareOrigin, unlockingShare]);
 
+  const handlePlatformShare = useCallback(
+    (url: string) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+      void awardShareBonus();
+    },
+    [awardShareBonus]
+  );
+
   const handleDownloadImage = useCallback(() => {
     const dataUrl = drawShareImage();
     if (!dataUrl) return;
@@ -185,6 +207,99 @@ export default function ResultClientPage({
       setTimeout(() => setShareToast(""), 1600);
     }
   }, [awardShareBonus]);
+
+  const renderShareSection = useCallback(
+    (title: string) => (
+      <div className="mt-8 rounded-xl border border-amber-800/30 bg-amber-950/20 p-5 space-y-4">
+        <div className="space-y-1">
+          <p className="text-amber-200 font-serif text-lg font-semibold">{title}</p>
+          <p className="text-amber-500/70 text-xs font-serif">
+            分享此結果即可獲得 +3 次占卜（每日一次）
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleShare}
+          disabled={unlockingShare}
+          className="w-full bg-amber-700 hover:bg-amber-600 text-white font-serif font-semibold py-3 rounded-xl transition-colors disabled:opacity-60"
+        >
+          {unlockingShare ? "處理中…" : "分享結果"}
+        </button>
+
+        <div className="grid grid-cols-5 gap-2">
+          <button
+            type="button"
+            onClick={() => handlePlatformShare(platformUrls.facebook)}
+            className="border border-amber-800/40 text-amber-200 font-serif text-xs py-2 rounded-lg"
+          >
+            Facebook
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePlatformShare(platformUrls.x)}
+            className="border border-amber-800/40 text-amber-200 font-serif text-xs py-2 rounded-lg"
+          >
+            X
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePlatformShare(platformUrls.whatsapp)}
+            className="border border-amber-800/40 text-amber-200 font-serif text-xs py-2 rounded-lg"
+          >
+            WhatsApp
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePlatformShare(platformUrls.instagram)}
+            className="border border-amber-800/40 text-amber-200 font-serif text-xs py-2 rounded-lg"
+          >
+            Instagram
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePlatformShare(platformUrls.threads)}
+            className="border border-amber-800/40 text-amber-200 font-serif text-xs py-2 rounded-lg"
+          >
+            Threads
+          </button>
+        </div>
+
+        {(showShareTools || !canWebShare) && (
+          <div className="grid grid-cols-2 gap-2 border-t border-amber-900/35 pt-4">
+            <button
+              type="button"
+              onClick={handleDownloadImage}
+              className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg"
+            >
+              下載分享圖片
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyText}
+              className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg"
+            >
+              複製分享文案
+            </button>
+          </div>
+        )}
+      </div>
+    ),
+    [
+      handleCopyText,
+      handleDownloadImage,
+      handlePlatformShare,
+      handleShare,
+      platformUrls.facebook,
+      platformUrls.instagram,
+      platformUrls.threads,
+      platformUrls.whatsapp,
+      platformUrls.x,
+      canWebShare,
+      showShareTools,
+      unlockingShare,
+    ]
+  );
 
   return (
     <div
@@ -253,69 +368,14 @@ export default function ResultClientPage({
 
       {/* ── Reading content ──────────────────────────────── */}
       <div className="max-w-2xl mx-auto px-4 pt-5">
-        <ReadingSections result={result as any} showPaywall={!isUnlocked} readingId={id} />
+        <ReadingSections
+          result={result as any}
+          showPaywall={!isUnlocked}
+          readingId={id}
+          inlineShareSection={renderShareSection("分享你的結果 🔮")}
+        />
 
-        <div className="mt-10 rounded-xl border border-amber-800/30 bg-amber-950/20 p-5 space-y-4">
-          <div className="space-y-1">
-            <p className="text-amber-200 font-serif text-lg font-semibold">呢個結果有啲恐怖…</p>
-            <p className="text-amber-300/80 font-serif text-lg font-semibold">分享俾朋友睇下佢點講 👀</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleShare}
-            disabled={unlockingShare}
-            className="w-full bg-amber-700 hover:bg-amber-600 text-white font-serif font-semibold py-3 rounded-xl transition-colors"
-          >
-            {unlockingShare ? "處理中…" : "分享結果 🔮"}
-          </button>
-          <p className="text-amber-500/70 text-xs font-serif text-center">
-            分享此結果即可 +3 次占卜（每日一次）
-          </p>
-
-          {showShareTools && (
-            <div className="space-y-3 border-t border-amber-900/35 pt-4">
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleDownloadImage}
-                  className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg"
-                >
-                  下載分享圖片
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopyText}
-                  className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg"
-                >
-                  複製文案
-                </button>
-                <a
-                  href="https://www.instagram.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => {
-                    void awardShareBonus();
-                  }}
-                  className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg text-center"
-                >
-                  開啟 Instagram
-                </a>
-                <a
-                  href="https://www.threads.net/"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => {
-                    void awardShareBonus();
-                  }}
-                  className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg text-center"
-                >
-                  開啟 Threads
-                </a>
-              </div>
-            </div>
-          )}
-        </div>
+        {isUnlocked && renderShareSection("睇完整份解讀後，想分享俾朋友睇？🔮")}
       </div>
 
       {/* ── Sticky bottom bar ────────────────────────────── */}

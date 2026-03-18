@@ -276,12 +276,14 @@ interface ReadingSectionsProps {
   result:      ReadingResult | null | undefined;
   showPaywall?: boolean;
   readingId?: string;
+  inlineShareSection?: React.ReactNode;
 }
 
 export default function ReadingSections({
   result,
   showPaywall = true,
   readingId,
+  inlineShareSection,
 }: ReadingSectionsProps) {
 
   // ── Guard: null result ────────────────────────────────────
@@ -389,6 +391,8 @@ export default function ReadingSections({
           {nextStep}
         </p>
       </SectionBox>
+
+      {inlineShareSection}
 
       <Divider />
 
