@@ -223,6 +223,27 @@ export default function ReadingClientPage() {
     }
   }, []);
 
+  const refreshRemainingFromServer = useCallback(async () => {
+    try {
+      const res = await fetch("/api/share-reward", { method: "GET", cache: "no-store" });
+      const data = await res.json();
+      if (data?.ok && typeof data.remainingFreeCount === "number") {
+        setRemainingFreeHint(data.remainingFreeCount);
+        try {
+          localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
+        } catch {
+          // ignore localStorage errors
+        }
+      }
+    } catch {
+      // ignore refresh errors
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRemainingFromServer();
+  }, [refreshRemainingFromServer]);
+
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 1800);
@@ -240,8 +261,9 @@ export default function ReadingClientPage() {
     } catch {
       // ignore sessionStorage errors
     }
+    void refreshRemainingFromServer();
     router.replace("/reading");
-  }, [router, searchParams]);
+  }, [refreshRemainingFromServer, router, searchParams]);
 
   // Fan state
   const [fanOrder, setFanOrder]   = useState<{ cardIndex: number; reversed: boolean }[]>([]);
@@ -439,13 +461,17 @@ export default function ReadingClientPage() {
       // ignore sessionStorage errors
     }
 
-    void fetch("/api/reading/unlock-share", { method: "POST" })
+    void fetch("/api/share-reward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ readingId: lastReadingId || undefined }),
+    })
       .then((res) => res.json())
       .then((data) => {
-        if (typeof data?.remainingFree === "number") {
-          setRemainingFreeHint(data.remainingFree);
+        if (typeof data?.remainingFreeCount === "number") {
+          setRemainingFreeHint(data.remainingFreeCount);
           try {
-            localStorage.setItem("arcana_remaining_free", String(data.remainingFree));
+            localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
           } catch {
             // ignore localStorage errors
           }
@@ -459,7 +485,7 @@ export default function ReadingClientPage() {
     setTimeout(() => {
       router.push("/reading?shared=1");
     }, 1200);
-  }, [router, shareNavigating]);
+  }, [lastReadingId, router, shareNavigating]);
 
   const handleShareUnlock = useCallback(() => {
     if (!shareTargetUrl) {

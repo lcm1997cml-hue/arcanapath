@@ -84,12 +84,16 @@ export default function ResultClientPage({
       // ignore sessionStorage errors
     }
 
-    void fetch("/api/reading/unlock-share", { method: "POST" })
+    void fetch("/api/share-reward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ readingId: id }),
+    })
       .then((res) => res.json())
       .then((data) => {
-        if (typeof data?.remainingFree === "number") {
+        if (typeof data?.remainingFreeCount === "number") {
           try {
-            localStorage.setItem("arcana_remaining_free", String(data.remainingFree));
+            localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
           } catch {
             // ignore localStorage errors
           }
@@ -103,7 +107,7 @@ export default function ResultClientPage({
       });
 
     setTimeout(() => router.push("/reading?shared=1"), 1200);
-  }, [router, shareTriggered]);
+  }, [id, router, shareTriggered]);
 
   const drawShareImage = useCallback(() => {
     const canvas = document.createElement("canvas");

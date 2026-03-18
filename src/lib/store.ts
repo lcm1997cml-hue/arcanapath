@@ -312,6 +312,31 @@ export async function addVisitorFreeCredits(visitorId: string, credits: number):
   return data as VisitorUsageRow;
 }
 
+export async function getVisitorRemainingFree(visitorId: string): Promise<number> {
+  const row = await getOrCreateVisitorUsage(visitorId);
+  return Math.max(0, Number(row.free_limit ?? 0) - Number(row.usage_count ?? 0));
+}
+
+export async function addLeadFreeCredits(email: string, credits: number): Promise<LeadRow> {
+  const lead = await getOrCreateLeadByEmail(email);
+  const nextFreeLimit = Number(lead.free_limit ?? 3) + Math.max(0, credits);
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("leads")
+    .update({ free_limit: nextFreeLimit })
+    .eq("id", lead.id)
+    .select("id,email,usage_count,free_limit,created_at,updated_at")
+    .single();
+  if (error) throw error;
+  return data as LeadRow;
+}
+
+export async function getLeadRemainingFree(email: string): Promise<number> {
+  const lead = await getOrCreateLeadByEmail(email);
+  return Math.max(0, Number(lead.free_limit ?? 0) - Number(lead.usage_count ?? 0));
+}
+
 export async function claimDailyShareBonus(
   visitorId: string,
   credits = 3
@@ -346,4 +371,47 @@ export async function claimDailyShareBonus(
     Number(updated.free_limit ?? 0) - Number(updated.usage_count ?? 0)
   );
   return { awarded: true, remainingFree };
+}
+
+export async function claimShareReward(params: {
+  visitorId: string;
+  email?: string;
+  credits?: number;
+}): Promise<{ rewarded: boolean; remainingFreeCount: number }> {
+  const credits = Math.max(0, params.credits ?? 3);
+  const today = new Date().toISOString().slice(0, 10);
+  const normalizedVisitorId = params.visitorId.trim();
+  const normalizedEmail = params.email ? normalizeLeadEmail(params.email) : null;
+  const rewardKey = normalizedEmail ? `lead:${normalizedEmail}` : `visitor:${normalizedVisitorId}`;
+  const supabase = getSupabaseAdmin();
+
+  const { error: insertError } = await supabase.from("visitor_share_bonus").insert({
+    visitor_id: rewardKey,
+    bonus_date: today,
+    credits,
+  });
+
+  if (insertError) {
+    if ((insertError as { code?: string }).code === "23505") {
+      const remainingFreeCount = normalizedEmail
+        ? await getLeadRemainingFree(normalizedEmail)
+        : await getVisitorRemainingFree(normalizedVisitorId);
+      return { rewarded: false, remainingFreeCount };
+    }
+    throw insertError;
+  }
+
+  const remainingFreeCount = normalizedEmail
+    ? Math.max(
+        0,
+        Number((await addLeadFreeCredits(normalizedEmail, credits)).free_limit ?? 0) -
+          Number((await getOrCreateLeadByEmail(normalizedEmail)).usage_count ?? 0)
+      )
+    : Math.max(
+        0,
+        Number((await addVisitorFreeCredits(normalizedVisitorId, credits)).free_limit ?? 0) -
+          Number((await getOrCreateVisitorUsage(normalizedVisitorId)).usage_count ?? 0)
+      );
+
+  return { rewarded: true, remainingFreeCount };
 }
