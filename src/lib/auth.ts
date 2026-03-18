@@ -2,11 +2,8 @@
 import { cookies } from "next/headers";
 import type { AppUser, UserRole, UsageLimit } from "@/types";
 import { ROLE_LIMITS } from "@/types";
-import { getUserById, getUserByEmail } from "@/lib/store";
 
-const ADMIN_SESSION_COOKIE = "arcana_admin_session";
-const DEFAULT_ADMIN_EMAIL = "admin@arcanapath.com";
-const DEFAULT_ADMIN_PASSWORD = "admin123";
+const ADMIN_SESSION_COOKIE = "arcana_session";
 
 export async function getCurrentUser(): Promise<AppUser | null> {
   try {
@@ -15,32 +12,54 @@ export async function getCurrentUser(): Promise<AppUser | null> {
     if (!token) return null;
 
     const payload = JSON.parse(Buffer.from(token, "base64").toString("utf8")) as {
-      userId?: string;
+      role?: string;
     };
-    if (!payload?.userId) return null;
+    if (payload?.role !== "admin") return null;
 
-    const user = getUserById(payload.userId);
-    if (!user || user.role !== "admin" || !user.isActive) return null;
-    return user;
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (!adminEmail) return null;
+
+    const now = new Date().toISOString();
+    return {
+      id: "admin",
+      email: adminEmail,
+      name: "Admin",
+      role: "admin",
+      dailyUsage: 0,
+      totalUsage: 0,
+      isActive: true,
+      createdAt: now,
+      lastActiveAt: now,
+    };
   } catch {
     return null;
   }
 }
 
-export function createAdminSessionToken(userId: string): string {
-  return Buffer.from(JSON.stringify({ userId, ts: Date.now() })).toString("base64");
+export function createAdminSessionToken(): string {
+  return Buffer.from(JSON.stringify({ role: "admin", ts: Date.now() })).toString("base64");
 }
 
 export async function authenticateAdmin(email: string, password: string): Promise<AppUser | null> {
-  const normalizedEmail = email.trim().toLowerCase();
-  const adminEmail = (process.env.ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
-  const adminPassword = process.env.ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD;
-  if (normalizedEmail !== adminEmail) return null;
-  if (password !== adminPassword) return null;
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminEmail || !adminPassword) return null;
 
-  const user = getUserByEmail(adminEmail);
-  if (!user || user.role !== "admin" || !user.isActive) return null;
-  return user;
+  const normalizedEmail = email.trim().toLowerCase();
+  if (normalizedEmail !== adminEmail.trim().toLowerCase()) return null;
+  if (password !== adminPassword) return null;
+  const now = new Date().toISOString();
+  return {
+    id: "admin",
+    email: adminEmail,
+    name: "Admin",
+    role: "admin",
+    dailyUsage: 0,
+    totalUsage: 0,
+    isActive: true,
+    createdAt: now,
+    lastActiveAt: now,
+  };
 }
 
 // ─── Check if user is admin ───────────────────────────────────

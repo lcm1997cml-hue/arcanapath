@@ -194,20 +194,19 @@ function SelectedPreview({
 
 export default function ReadingClientPage() {
   const router = useRouter();
+  const shareText = "我試咗個AI塔羅\n結果有啲恐怖😂\n你哋覺得準唔準？";
 
   const [phase,     setPhase]     = useState<Phase>("input");
   const [question,  setQuestion]  = useState("");
-  const [email, setEmail] = useState("");
   const [topic,     setTopic]     = useState<Topic>("love");
   const [error,     setError]     = useState("");
-  const [needsEmailCapture, setNeedsEmailCapture] = useState(false);
-  const [captureLoading, setCaptureLoading] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [toast, setToast] = useState("");
+  const [unlockingShare, setUnlockingShare] = useState(false);
   const [remainingFreeHint, setRemainingFreeHint] = useState<number | null>(null);
 
   useEffect(() => {
     try {
-      const savedEmail = localStorage.getItem("arcana_lead_email");
-      if (savedEmail) setEmail(savedEmail);
       const savedRemaining = localStorage.getItem("arcana_remaining_free");
       if (savedRemaining !== null) {
         const parsed = Number(savedRemaining);
@@ -217,6 +216,12 @@ export default function ReadingClientPage() {
       // ignore localStorage errors
     }
   }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 1800);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // Fan state
   const [fanOrder, setFanOrder]   = useState<{ cardIndex: number; reversed: boolean }[]>([]);
@@ -239,15 +244,7 @@ export default function ReadingClientPage() {
       return;
     }
     setError("");
-    setNeedsEmailCapture(false);
-    const normalizedEmail = email.trim().toLowerCase();
-    try {
-      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-        localStorage.setItem("arcana_lead_email", normalizedEmail);
-      }
-    } catch {
-      // ignore localStorage errors
-    }
+    setShowUnlockModal(false);
     // Fisher-Yates on deck indices
     const indices = Array.from({ length: deck.length }, (_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
@@ -262,7 +259,7 @@ export default function ReadingClientPage() {
     );
     setSelected([]);
     setPhase("shuffle");
-  }, [question, email]);
+  }, [question]);
 
   // ── Fan select ─────────────────────────────────────────────
   const handleFanSelect = useCallback((index: number) => {
@@ -288,13 +285,12 @@ export default function ReadingClientPage() {
           question: question.trim(),
           topic,
           cards: serializeDrawnCards(drawnCards),
-          email: email.trim().toLowerCase(),
         }),
       });
       const data = await res.json();
       if (!data.ok) {
-        if (data.requireEmailCapture) {
-          setNeedsEmailCapture(true);
+        if (data.unlockRequired) {
+          setShowUnlockModal(true);
           setPhase("input");
         }
         if (typeof data.remainingFree === "number") {
@@ -306,7 +302,7 @@ export default function ReadingClientPage() {
           }
         }
         setError(data.error ?? "發生錯誤，請重試");
-        if (!data.requireEmailCapture) setPhase("preview");
+        if (!data.unlockRequired) setPhase("preview");
         return;
       }
       if (typeof data.remainingFree === "number") {
@@ -328,49 +324,121 @@ export default function ReadingClientPage() {
       setError("網絡錯誤，請重試");
       setPhase("preview");
     }
-  }, [drawnCards, question, topic, email, router]);
+  }, [drawnCards, question, topic, router]);
 
-  const handleCaptureEmail = useCallback(async () => {
-    if (!email.trim()) {
-      setError("請輸入有效電郵");
-      return;
-    }
-    setCaptureLoading(true);
-    setError("");
+  const shareUrls = {
+    x: `https://twitter.com/intent/tweet?text=${encodeURIComponent("我試咗個AI塔羅，結果有啲恐怖…")}&url=${encodeURIComponent(
+      typeof window !== "undefined" ? window.location.origin : ""
+    )}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+      typeof window !== "undefined" ? window.location.origin : ""
+    )}`,
+    whatsapp: `https://wa.me/?text=${encodeURIComponent(
+      `我試咗個AI塔羅，結果有啲恐怖… ${typeof window !== "undefined" ? window.location.origin : ""}`
+    )}`,
+  };
+
+  const drawShareImage = useCallback((): string => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1080;
+    canvas.height = 1920;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+
+    const bg = ctx.createLinearGradient(0, 0, 1080, 1920);
+    bg.addColorStop(0, "#0b0616");
+    bg.addColorStop(0.5, "#1b0b2f");
+    bg.addColorStop(1, "#07040f");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, 1080, 1920);
+
+    ctx.fillStyle = "#f8d28c";
+    ctx.font = "bold 72px serif";
+    ctx.textAlign = "center";
+    ctx.fillText("呢個結果有啲恐怖", 540, 260);
+
+    const cardY = 540;
+    const cardW = 220;
+    const cardH = 360;
+    const cardX = [190, 430, 670];
+    cardX.forEach((x) => {
+      ctx.fillStyle = "rgba(35, 18, 60, 0.95)";
+      ctx.fillRect(x, cardY, cardW, cardH);
+      ctx.strokeStyle = "rgba(248, 210, 140, 0.7)";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x, cardY, cardW, cardH);
+      ctx.fillStyle = "rgba(248, 210, 140, 0.75)";
+      ctx.font = "56px serif";
+      ctx.fillText("✦", x + cardW / 2, cardY + cardH / 2 + 18);
+    });
+
+    ctx.fillStyle = "#e5c994";
+    ctx.font = "48px serif";
+    ctx.fillText("你正在進入人生轉折點", 540, 1060);
+
+    const domain = typeof window !== "undefined" ? window.location.origin.replace(/^https?:\/\//, "") : "ArcanaPath";
+    ctx.fillStyle = "rgba(245, 210, 150, 0.9)";
+    ctx.font = "36px serif";
+    ctx.fillText(domain, 540, 1760);
+
+    return canvas.toDataURL("image/png");
+  }, []);
+
+  const downloadShareImage = useCallback(() => {
+    const dataUrl = drawShareImage();
+    if (!dataUrl) return;
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = "arcanapath-share.png";
+    a.click();
+  }, [drawShareImage]);
+
+  const copyShareText = useCallback(async () => {
     try {
-      const normalizedEmail = email.trim().toLowerCase();
-      const res = await fetch("/api/lead/capture", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: normalizedEmail }),
-      });
+      await navigator.clipboard.writeText(shareText);
+      setToast("文案已複製");
+    } catch {
+      setToast("複製失敗，請手動複製");
+    }
+  }, [shareText]);
+
+  const handleShareUnlock = useCallback(async () => {
+    setUnlockingShare(true);
+    try {
+      const res = await fetch("/api/reading/unlock-share", { method: "POST" });
       const data = await res.json();
       if (!data.ok) {
-        setError(data.error ?? "提交電郵失敗");
+        setError(data.error ?? "解鎖失敗，請重試");
         return;
       }
-      if (typeof data?.data?.remaining === "number") {
-        setRemainingFreeHint(data.data.remaining);
+      if (typeof data.remainingFree === "number") {
+        setRemainingFreeHint(data.remainingFree);
         try {
-          localStorage.setItem("arcana_remaining_free", String(data.data.remaining));
+          localStorage.setItem("arcana_remaining_free", String(data.remainingFree));
         } catch {
           // ignore localStorage errors
         }
       }
-      try {
-        localStorage.setItem("arcana_lead_email", normalizedEmail);
-      } catch {
-        // ignore localStorage errors
+      setToast("🎉 已解鎖 +3 次占卜");
+      setShowUnlockModal(false);
+
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({
+            title: "AI塔羅占卜",
+            text: "我試咗個AI塔羅，結果有啲恐怖…",
+            url: window.location.origin,
+          });
+        } catch {
+          // user cancelled or unsupported payload
+        }
       }
-      setNeedsEmailCapture(false);
-      router.push("/reading");
-      router.refresh();
     } catch {
       setError("網絡錯誤，請重試");
     } finally {
-      setCaptureLoading(false);
+      setUnlockingShare(false);
     }
-  }, [email, router]);
+  }, []);
 
   // ── Phase step indicator ───────────────────────────────────
   const phaseOrder: Phase[] = ["input", "shuffle", "select", "preview"];
@@ -440,19 +508,13 @@ export default function ReadingClientPage() {
                 maxLength={200}
                 className="w-full bg-black/25 border border-amber-800/45 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-900/60 font-serif text-sm resize-none focus:outline-none focus:border-amber-600/65 transition-colors leading-relaxed"
               />
+              <p className="text-amber-600/60 text-xs font-serif leading-relaxed">
+                💡 問得越具體，結果會越準
+                <br />
+                例如：講清楚對象、時間或你在意的細節
+              </p>
               {error && <p className="text-rose-400 text-xs font-serif">{error}</p>}
               <div className="text-right text-amber-900/45 text-xs font-serif">{question.length}/200</div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-amber-400 font-serif text-sm block">電郵（免費次數識別）</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
-                className="w-full bg-black/25 border border-amber-800/45 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-900/60 font-serif text-sm focus:outline-none focus:border-amber-600/65 transition-colors"
-              />
             </div>
 
             {/* Topic */}
@@ -491,27 +553,12 @@ export default function ReadingClientPage() {
             </button>
 
             <p className="text-center text-amber-900/40 text-xs font-serif">
-              訪客可先免費試用 1 次；留下 email 可再獲得 3 次免費占卜
+              訪客可先免費試用，次數用完可透過分享解鎖更多占卜
             </p>
             {remainingFreeHint !== null && (
               <p className="text-center text-amber-400/70 text-xs font-serif">
                 剩餘免費次數：{remainingFreeHint}
               </p>
-            )}
-
-            {needsEmailCapture && (
-              <div className="rounded-xl border border-amber-700/40 bg-amber-950/30 p-4 space-y-3">
-                <p className="text-amber-300 text-sm font-serif">
-                  再留下 email，即可獲得 3 次免費占卜
-                </p>
-                <button
-                  onClick={handleCaptureEmail}
-                  disabled={captureLoading}
-                  className="w-full bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-serif font-semibold py-2.5 rounded-lg transition-colors"
-                >
-                  {captureLoading ? "提交中…" : "提交電郵並繼續"}
-                </button>
-              </div>
             )}
           </div>
         )}
@@ -595,6 +642,62 @@ export default function ReadingClientPage() {
           </div>
         )}
       </div>
+
+      {showUnlockModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="w-full max-w-md rounded-2xl border border-amber-800/40 bg-[#120a22] p-5 space-y-4">
+            <h3 className="text-amber-200 font-serif text-xl font-semibold">你已用完免費次數 🔮</h3>
+            <p className="text-amber-400/80 text-sm font-serif">解鎖更多占卜方式：</p>
+
+            <button
+              onClick={handleShareUnlock}
+              disabled={unlockingShare}
+              className="w-full bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-serif font-semibold py-3 rounded-xl transition-colors"
+            >
+              {unlockingShare ? "處理中…" : "分享你的結果 → +3 次占卜"}
+            </button>
+
+            <a
+              href="/paywall"
+              className="block w-full border border-amber-700/40 text-amber-300 text-center font-serif font-semibold py-3 rounded-xl hover:border-amber-600/60 transition-colors"
+            >
+              解鎖完整報告
+            </a>
+
+            <div className="border-t border-amber-900/40 pt-4 space-y-2">
+              <p className="text-amber-500/70 text-xs font-serif">分享到社交平台</p>
+              <div className="grid grid-cols-3 gap-2">
+                <a href={shareUrls.x} target="_blank" rel="noreferrer" className="text-center text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">X</a>
+                <a href={shareUrls.facebook} target="_blank" rel="noreferrer" className="text-center text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">Facebook</a>
+                <a href={shareUrls.whatsapp} target="_blank" rel="noreferrer" className="text-center text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">WhatsApp</a>
+              </div>
+            </div>
+
+            <div className="border-t border-amber-900/40 pt-4 space-y-2">
+              <p className="text-amber-500/70 text-xs font-serif">Instagram / Threads</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={downloadShareImage} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">下載分享圖片</button>
+                <button onClick={copyShareText} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">複製文案</button>
+                <a href="https://www.instagram.com/" target="_blank" rel="noreferrer" className="text-center text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">開啟 Instagram</a>
+                <a href="https://www.threads.net/" target="_blank" rel="noreferrer" className="text-center text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">開啟 Threads</a>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowUnlockModal(false)}
+              className="w-full text-amber-600/70 text-sm font-serif py-1"
+            >
+              稍後再說
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-amber-700 text-white text-sm font-serif px-4 py-2 rounded-lg shadow-lg">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

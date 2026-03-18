@@ -17,13 +17,13 @@ export default function RegisterPage() {
           </Link>
           <p className="text-amber-500/50 text-sm font-serif mt-2">會員系統稍後推出</p>
           <p className="text-amber-600/40 text-xs font-serif mt-1">
-            目前先免費試用 1 次，留下 email 可再獲得額外 3 次免費占卜
+            目前訪客可先免費試用 1 次，用完後可透過分享解鎖更多免費占卜
           </p>
         </div>
 
         <div className="rounded-xl border border-amber-800/30 bg-amber-950/20 p-6 space-y-4">
           <p className="text-amber-300/80 text-sm font-serif leading-relaxed">
-            現階段無需建立會員帳戶。你可先免費試用 1 次；若想獲得額外免費次數，只需留下 email，即可再獲得 3 次免費占卜額度。
+            現階段無需建立會員帳戶。你可先免費試用；當免費次數用完後，可透過分享結果即時解鎖更多占卜次數。
           </p>
           <Link
             href="/reading"

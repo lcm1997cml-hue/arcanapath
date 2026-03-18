@@ -31,12 +31,7 @@ export default function LoginPage() {
         setError(data.error ?? "登入失敗");
         return;
       }
-      // Redirect based on role
-      if (data.data.role === "admin") {
-        router.push("/admin");
-      } else {
-        router.push("/dashboard");
-      }
+      router.push("/admin");
     } catch {
       setError("網絡錯誤，請重試");
     } finally {
@@ -100,7 +95,7 @@ export default function LoginPage() {
           <Link href="/reading" className="text-amber-400 hover:text-amber-300">
             占卜頁
           </Link>{" "}
-          留下 email 即可開始
+          即可開始
         </p>
       </div>
     </div>

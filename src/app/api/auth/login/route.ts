@@ -14,18 +14,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "電郵或密碼錯誤" }, { status: 401 });
     }
 
-    const token = createAdminSessionToken(user.id);
+    const token = createAdminSessionToken();
     const response = NextResponse.json({
       ok: true,
       data: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        name: user.name,
+        id: "admin",
+        email: process.env.ADMIN_EMAIL!,
+        role: "admin",
+        name: "Admin",
       },
     });
 
-    response.cookies.set("arcana_admin_session", token, {
+    response.cookies.set("arcana_session", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",

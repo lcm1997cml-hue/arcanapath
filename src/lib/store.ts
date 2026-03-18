@@ -296,3 +296,18 @@ export async function incrementVisitorUsagePersistent(visitorId: string): Promis
   if (error) throw error;
   return nextUsageCount;
 }
+
+export async function addVisitorFreeCredits(visitorId: string, credits: number): Promise<VisitorUsageRow> {
+  const row = await getOrCreateVisitorUsage(visitorId);
+  const nextFreeLimit = Number(row.free_limit ?? 1) + Math.max(0, credits);
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("visitor_usage")
+    .update({ free_limit: nextFreeLimit })
+    .eq("id", row.id)
+    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at")
+    .single();
+  if (error) throw error;
+  return data as VisitorUsageRow;
+}
