@@ -311,3 +311,39 @@ export async function addVisitorFreeCredits(visitorId: string, credits: number):
   if (error) throw error;
   return data as VisitorUsageRow;
 }
+
+export async function claimDailyShareBonus(
+  visitorId: string,
+  credits = 3
+): Promise<{ awarded: boolean; remainingFree: number }> {
+  const normalizedVisitorId = visitorId.trim();
+  const today = new Date().toISOString().slice(0, 10);
+  const current = await getOrCreateVisitorUsage(normalizedVisitorId);
+  const supabase = getSupabaseAdmin();
+
+  const { error: bonusError } = await supabase
+    .from("visitor_share_bonus")
+    .insert({
+      visitor_id: normalizedVisitorId,
+      bonus_date: today,
+      credits: Math.max(0, credits),
+    });
+
+  if (bonusError) {
+    if ((bonusError as { code?: string }).code === "23505") {
+      const remainingFree = Math.max(
+        0,
+        Number(current.free_limit ?? 0) - Number(current.usage_count ?? 0)
+      );
+      return { awarded: false, remainingFree };
+    }
+    throw bonusError;
+  }
+
+  const updated = await addVisitorFreeCredits(normalizedVisitorId, credits);
+  const remainingFree = Math.max(
+    0,
+    Number(updated.free_limit ?? 0) - Number(updated.usage_count ?? 0)
+  );
+  return { awarded: true, remainingFree };
+}

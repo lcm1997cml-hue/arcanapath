@@ -43,6 +43,8 @@ export default function ReadingFan({
   const cardH = isMobile ? 74 : CARD_H;
   const pivotOffset = isMobile ? 300 : PIVOT_OFFSET;
   const risePx = isMobile ? 26 : RISE_PX;
+  const touchPad = isMobile ? 10 : 6;
+  const sideGutter = isMobile ? 32 : 12;
 
   const cards = useMemo(() => {
     return Array.from({ length: count }, (_, i) => {
@@ -55,13 +57,14 @@ export default function ReadingFan({
     });
   }, [count, fanRadius, fanSpreadDeg, pivotOffset]);
 
-  const containerW = fanRadius * 2 + cardW + 24;
+  const containerW = fanRadius * 2 + cardW + 24 + sideGutter * 2;
   const containerH = pivotOffset + cardH * 0.6 + 24;
   const canSelectMore = selectedIndices.length < maxSelect;
+  const mid = (count - 1) / 2;
 
   return (
     <div
-      className="relative mx-auto touch-pan-x"
+      className="relative mx-auto touch-pan-x overflow-visible"
       style={{ width: containerW, height: containerH }}
     >
       {cards.map(({ i, angleDeg, x, y }) => {
@@ -72,25 +75,34 @@ export default function ReadingFan({
         // Rise amount: selected > hovered > none
         const riseAmount  = isSelected ? risePx : isHovered ? risePx * 0.55 : 0;
 
+        const baseZ = Math.round(count - Math.abs(i - mid));
+
         return (
-          <div
+          <button
             key={i}
+            type="button"
             onClick={() => !isDisabled && onSelect(i)}
             onMouseEnter={() => !isDisabled && setHoveredIndex(i)}
             onMouseLeave={() => setHoveredIndex(null)}
             className="absolute transition-all"
             style={{
-              width:  cardW,
-              height: cardH,
-              left:   containerW / 2 + x - cardW / 2,
-              top:    y - cardH / 2,
+              width:  cardW + touchPad * 2,
+              height: cardH + touchPad * 2,
+              left:   containerW / 2 + x - cardW / 2 - touchPad,
+              top:    y - cardH / 2 - touchPad,
               transformOrigin: `50% ${pivotOffset + cardH / 2}px`,
               transform: `rotate(${angleDeg}deg) translateY(${-riseAmount}px)`,
               transitionDuration: isSelected ? "320ms" : "180ms",
               transitionTimingFunction: isSelected ? "cubic-bezier(0.34,1.56,0.64,1)" : "ease-out",
-              zIndex: isSelected ? 60 + i : isHovered ? 40 + i : i,
+              zIndex: isSelected ? 60 + i : isHovered ? 40 + i : baseZ,
               cursor: isDisabled ? "default" : "pointer",
+              pointerEvents: "auto",
+              touchAction: "manipulation",
+              background: "transparent",
+              border: "none",
+              padding: touchPad,
             }}
+            aria-label={`選擇第 ${i + 1} 張牌`}
           >
             <div
               className="w-full h-full relative overflow-hidden"
@@ -158,7 +170,7 @@ export default function ReadingFan({
                 />
               )}
             </div>
-          </div>
+          </button>
         );
       })}
     </div>

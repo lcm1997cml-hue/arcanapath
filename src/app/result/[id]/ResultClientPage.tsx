@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ReadingResult, UserRole } from "@/types/reading";
 import ReadingSections from "@/components/ReadingSections";
 import CheckoutPlanButtons from "@/components/CheckoutPlanButtons";
@@ -29,6 +30,11 @@ export default function ResultClientPage({
   userRole,
   isLoggedIn,
 }: ResultClientPageProps) {
+  const router = useRouter();
+  const [showShareTools, setShowShareTools] = useState(false);
+  const [shareToast, setShareToast] = useState("");
+  const [unlockingShare, setUnlockingShare] = useState(false);
+
   const paidLabelMap: Record<string, string> = {
     "19": "基本完整解讀",
     "39": "深入分析",
@@ -37,6 +43,148 @@ export default function ResultClientPage({
     insight: "深入分析",
     master: "完整 AI 深度解讀",
   };
+
+  const shareCopyText = "我試咗個AI塔羅\n結果有啲恐怖😂\n你哋覺得準唔準？";
+  const shareOrigin = useMemo(
+    () => (typeof window !== "undefined" ? window.location.origin : ""),
+    []
+  );
+  const shareSummary = useMemo(() => {
+    const headline = result?.freeReading?.headline ?? "你正在進入人生轉折點";
+    return headline.slice(0, 20);
+  }, [result]);
+  const shareCards = useMemo(() => (Array.isArray(result?.cards) ? result.cards.slice(0, 3) : []), [result]);
+
+  const awardShareBonus = useCallback(async () => {
+    const res = await fetch("/api/reading/unlock-share", { method: "POST" });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error ?? "解鎖失敗");
+    if (typeof data.remainingFree === "number") {
+      try {
+        localStorage.setItem("arcana_remaining_free", String(data.remainingFree));
+      } catch {
+        // ignore localStorage errors
+      }
+    }
+    if (data.awarded) {
+      setShareToast("🎉 已解鎖 +3 次占卜");
+    } else {
+      setShareToast("今日已領取過 +3 次占卜");
+    }
+    try {
+      sessionStorage.setItem("arcana_post_share_message", "你已完成分享，快啲抽籤吧！");
+    } catch {
+      // ignore sessionStorage errors
+    }
+    setTimeout(() => router.push("/reading?shared=1"), 500);
+  }, [router]);
+
+  const drawShareImage = useCallback(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1080;
+    canvas.height = 1920;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+
+    const bg = ctx.createLinearGradient(0, 0, 1080, 1920);
+    bg.addColorStop(0, "#0b0616");
+    bg.addColorStop(0.5, "#1b0b2f");
+    bg.addColorStop(1, "#07040f");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, 1080, 1920);
+
+    ctx.fillStyle = "#f8d28c";
+    ctx.font = "bold 52px serif";
+    ctx.textAlign = "center";
+    const questionText = (result?.question ?? "我的塔羅問題").slice(0, 44);
+    ctx.fillText(`問題：${questionText}`, 540, 180);
+
+    ctx.fillStyle = "rgba(245, 213, 160, 0.8)";
+    ctx.font = "bold 68px serif";
+    ctx.fillText("呢個結果有啲恐怖", 540, 280);
+
+    const cardY = 500;
+    const cardW = 250;
+    const cardH = 380;
+    const cardX = [120, 415, 710];
+    const cardPos = ["過去", "現在", "未來"];
+    cardX.forEach((x, idx) => {
+      const card = shareCards[idx];
+      ctx.fillStyle = "rgba(35, 18, 60, 0.95)";
+      ctx.fillRect(x, cardY, cardW, cardH);
+      ctx.strokeStyle = "rgba(248, 210, 140, 0.7)";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x, cardY, cardW, cardH);
+
+      ctx.fillStyle = "rgba(248, 210, 140, 0.95)";
+      ctx.font = "bold 34px serif";
+      ctx.fillText(cardPos[idx], x + cardW / 2, cardY - 20);
+
+      ctx.fillStyle = "rgba(248, 210, 140, 0.75)";
+      ctx.font = "56px serif";
+      ctx.fillText("✦", x + cardW / 2, cardY + cardH / 2 + 18);
+
+      ctx.fillStyle = "#f8d28c";
+      ctx.font = "28px serif";
+      const cardName = card?.card?.name_zh ?? "神秘牌";
+      const orientation = card?.reversed ? "逆位" : "正位";
+      ctx.fillText(cardName.slice(0, 8), x + cardW / 2, cardY + cardH + 42);
+      ctx.fillStyle = "rgba(248, 210, 140, 0.75)";
+      ctx.font = "24px serif";
+      ctx.fillText(orientation, x + cardW / 2, cardY + cardH + 78);
+    });
+
+    ctx.fillStyle = "#e5c994";
+    ctx.font = "42px serif";
+    ctx.fillText(shareSummary || "你正在進入人生轉折點", 540, 1210);
+
+    const domain = shareOrigin.replace(/^https?:\/\//, "") || "ArcanaPath";
+    ctx.fillStyle = "rgba(245, 210, 150, 0.9)";
+    ctx.font = "36px serif";
+    ctx.fillText(domain, 540, 1760);
+
+    return canvas.toDataURL("image/png");
+  }, [result, shareCards, shareOrigin, shareSummary]);
+
+  const handleShare = useCallback(async () => {
+    if (unlockingShare) return;
+    setUnlockingShare(true);
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: "AI塔羅占卜",
+          text: "我試咗個AI塔羅，結果有啲恐怖…",
+          url: shareOrigin || undefined,
+        });
+        await awardShareBonus();
+        return;
+      } catch {
+        // Fallback tools still available below.
+      }
+    }
+    setShowShareTools(true);
+    setUnlockingShare(false);
+  }, [awardShareBonus, shareOrigin, unlockingShare]);
+
+  const handleDownloadImage = useCallback(() => {
+    const dataUrl = drawShareImage();
+    if (!dataUrl) return;
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = "arcanapath-result-share.png";
+    a.click();
+    void awardShareBonus();
+  }, [awardShareBonus, drawShareImage]);
+
+  const handleCopyText = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(shareCopyText);
+      await awardShareBonus();
+    } catch {
+      setShareToast("複製失敗，請手動複製");
+      setTimeout(() => setShareToast(""), 1600);
+    }
+  }, [awardShareBonus]);
 
   return (
     <div
@@ -106,6 +254,68 @@ export default function ResultClientPage({
       {/* ── Reading content ──────────────────────────────── */}
       <div className="max-w-2xl mx-auto px-4 pt-5">
         <ReadingSections result={result as any} showPaywall={!isUnlocked} readingId={id} />
+
+        <div className="mt-10 rounded-xl border border-amber-800/30 bg-amber-950/20 p-5 space-y-4">
+          <div className="space-y-1">
+            <p className="text-amber-200 font-serif text-lg font-semibold">呢個結果有啲恐怖…</p>
+            <p className="text-amber-300/80 font-serif text-lg font-semibold">分享俾朋友睇下佢點講 👀</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleShare}
+            disabled={unlockingShare}
+            className="w-full bg-amber-700 hover:bg-amber-600 text-white font-serif font-semibold py-3 rounded-xl transition-colors"
+          >
+            {unlockingShare ? "處理中…" : "分享結果 🔮"}
+          </button>
+          <p className="text-amber-500/70 text-xs font-serif text-center">
+            分享此結果即可 +3 次占卜（每日一次）
+          </p>
+
+          {showShareTools && (
+            <div className="space-y-3 border-t border-amber-900/35 pt-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadImage}
+                  className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg"
+                >
+                  下載分享圖片
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyText}
+                  className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg"
+                >
+                  複製文案
+                </button>
+                <a
+                  href="https://www.instagram.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => {
+                    void awardShareBonus();
+                  }}
+                  className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg text-center"
+                >
+                  開啟 Instagram
+                </a>
+                <a
+                  href="https://www.threads.net/"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => {
+                    void awardShareBonus();
+                  }}
+                  className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg text-center"
+                >
+                  開啟 Threads
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Sticky bottom bar ────────────────────────────── */}
@@ -154,6 +364,12 @@ export default function ResultClientPage({
           </div>
         </div>
       </div>
+
+      {shareToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-amber-700 text-white text-sm font-serif px-4 py-2 rounded-lg shadow-lg">
+          {shareToast}
+        </div>
+      )}
     </div>
   );
 }

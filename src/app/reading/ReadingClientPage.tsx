@@ -11,7 +11,7 @@
 // =============================================================
 
 import React, { useState, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { Topic, DrawnCard } from "@/types/reading";
 import { TOPIC_LABELS } from "@/types/reading";
 import { deck, serializeDrawnCards } from "@/lib/tarot/utils";
@@ -194,6 +194,7 @@ function SelectedPreview({
 
 export default function ReadingClientPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const shareText = "我試咗個AI塔羅\n結果有啲恐怖😂\n你哋覺得準唔準？";
 
   const [phase,     setPhase]     = useState<Phase>("input");
@@ -222,6 +223,20 @@ export default function ReadingClientPage() {
     const timer = setTimeout(() => setToast(""), 1800);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (searchParams.get("shared") !== "1") return;
+    const savedMessage = typeof window !== "undefined"
+      ? sessionStorage.getItem("arcana_post_share_message")
+      : null;
+    setToast(savedMessage ?? "你已完成分享，快啲抽籤吧！");
+    try {
+      sessionStorage.removeItem("arcana_post_share_message");
+    } catch {
+      // ignore sessionStorage errors
+    }
+    router.replace("/reading");
+  }, [router, searchParams]);
 
   // Fan state
   const [fanOrder, setFanOrder]   = useState<{ cardIndex: number; reversed: boolean }[]>([]);
@@ -419,8 +434,10 @@ export default function ReadingClientPage() {
           // ignore localStorage errors
         }
       }
-      setToast("🎉 已解鎖 +3 次占卜");
-      setShowUnlockModal(false);
+      setToast(data.message ?? (data.awarded ? "🎉 已解鎖 +3 次占卜" : "今日已領取過 +3 次占卜"));
+      if (data.awarded) {
+        setShowUnlockModal(false);
+      }
 
       if (typeof navigator !== "undefined" && navigator.share) {
         try {

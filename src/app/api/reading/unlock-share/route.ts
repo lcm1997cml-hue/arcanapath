@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { addVisitorFreeCredits } from "@/lib/store";
+import { claimDailyShareBonus } from "@/lib/store";
 
 const VISITOR_COOKIE = "arcana_visitor_id";
 
@@ -9,10 +9,14 @@ export async function POST(req: NextRequest) {
     let visitorId = req.cookies.get(VISITOR_COOKIE)?.value ?? "";
     if (!visitorId) visitorId = nanoid(18);
 
-    const row = await addVisitorFreeCredits(visitorId, 3);
-    const remainingFree = Math.max(0, Number(row.free_limit ?? 0) - Number(row.usage_count ?? 0));
+    const { awarded, remainingFree } = await claimDailyShareBonus(visitorId, 3);
 
-    const res = NextResponse.json({ ok: true, remainingFree });
+    const res = NextResponse.json({
+      ok: true,
+      awarded,
+      remainingFree,
+      message: awarded ? "🎉 已解鎖 +3 次占卜" : "今日已領取過 +3 次占卜",
+    });
     res.cookies.set(VISITOR_COOKIE, visitorId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

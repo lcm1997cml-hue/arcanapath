@@ -67,6 +67,17 @@ for each row
 execute function public.set_visitor_usage_updated_at();
 `;
 
+export const VISITOR_SHARE_BONUS_TABLE_SQL = `
+create table if not exists public.visitor_share_bonus (
+  id uuid primary key default gen_random_uuid(),
+  visitor_id text not null,
+  bonus_date date not null,
+  credits integer not null default 3,
+  created_at timestamp with time zone not null default now(),
+  unique(visitor_id, bonus_date)
+);
+`;
+
 export function getSupabaseAdmin(): SupabaseClient {
   if (supabaseAdmin) return supabaseAdmin;
 
