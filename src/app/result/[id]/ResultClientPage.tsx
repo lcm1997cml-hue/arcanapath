@@ -33,7 +33,7 @@ export default function ResultClientPage({
   const router = useRouter();
   const [showShareTools, setShowShareTools] = useState(false);
   const [shareToast, setShareToast] = useState("");
-  const [unlockingShare, setUnlockingShare] = useState(false);
+  const [shareTriggered, setShareTriggered] = useState(false);
 
   const paidLabelMap: Record<string, string> = {
     "19": "基本完整解讀",
@@ -45,10 +45,11 @@ export default function ResultClientPage({
   };
 
   const shareCopyText = "我試咗個AI塔羅\n結果有啲恐怖😂\n你哋覺得準唔準？";
-  const shareOrigin = useMemo(
-    () => (typeof window !== "undefined" ? window.location.origin : ""),
-    []
-  );
+  const shareOrigin = useMemo(() => {
+    if (typeof window === "undefined") return process.env.NEXT_PUBLIC_APP_URL ?? "";
+    return process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
+  }, []);
+  const shareUrl = useMemo(() => `${shareOrigin}/r/${id}`, [shareOrigin, id]);
   const shareSummary = useMemo(() => {
     const raw =
       result?.freeReading?.headline ??
@@ -61,37 +62,48 @@ export default function ResultClientPage({
   const shareCards = useMemo(() => (Array.isArray(result?.cards) ? result.cards.slice(0, 3) : []), [result]);
   const platformUrls = useMemo(
     () => ({
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareOrigin)}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
       x: `https://twitter.com/intent/tweet?text=${encodeURIComponent("我啱啱做咗一次 AI 塔羅占卜")}&url=${encodeURIComponent(
-        shareOrigin
+        shareUrl
       )}`,
-      whatsapp: `https://wa.me/?text=${encodeURIComponent(`我啱啱做咗一次 AI 塔羅占卜：${shareOrigin}`)}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(`我啱啱做咗一次 AI 塔羅占卜：${shareUrl}`)}`,
       instagram: "https://www.instagram.com/",
       threads: "https://www.threads.net/",
     }),
-    [shareOrigin]
+    [shareUrl]
   );
   const canWebShare = typeof navigator !== "undefined" && "share" in navigator;
 
-  const awardShareBonus = useCallback(async () => {
-    const res = await fetch("/api/reading/unlock-share", { method: "POST" });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error ?? "解鎖失敗");
-    if (typeof data.remainingFree === "number") {
-      try {
-        localStorage.setItem("arcana_remaining_free", String(data.remainingFree));
-      } catch {
-        // ignore localStorage errors
-      }
-    }
-    setShareToast(data.awarded ? "🎉 已解鎖 +3 次占卜" : "今日已領取分享獎勵");
+  const handleShareCompleted = useCallback(() => {
+    if (shareTriggered) return;
+    setShareTriggered(true);
+    setShareToast("🎉 已解鎖 +3 次占卜");
     try {
       sessionStorage.setItem("arcana_post_share_message", "你已完成分享，快啲抽籤吧！");
     } catch {
       // ignore sessionStorage errors
     }
-    setTimeout(() => router.push("/reading?shared=1"), 500);
-  }, [router]);
+
+    void fetch("/api/reading/unlock-share", { method: "POST" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (typeof data?.remainingFree === "number") {
+          try {
+            localStorage.setItem("arcana_remaining_free", String(data.remainingFree));
+          } catch {
+            // ignore localStorage errors
+          }
+        }
+        if (data?.awarded === false) {
+          setShareToast("今日已領取分享獎勵");
+        }
+      })
+      .catch(() => {
+        // Fire-and-forget; UX flow should still continue.
+      });
+
+    setTimeout(() => router.push("/reading?shared=1"), 1200);
+  }, [router, shareTriggered]);
 
   const drawShareImage = useCallback(() => {
     const canvas = document.createElement("canvas");
@@ -152,40 +164,38 @@ export default function ResultClientPage({
     ctx.font = "42px serif";
     ctx.fillText(shareSummary || "你正在進入人生轉折點", 540, 1210);
 
-    const domain = shareOrigin.replace(/^https?:\/\//, "") || "ArcanaPath";
+    const domain = shareUrl.replace(/^https?:\/\//, "").replace(/\/r\/.+$/, "") || "ArcanaPath";
     ctx.fillStyle = "rgba(245, 210, 150, 0.9)";
     ctx.font = "36px serif";
     ctx.fillText(domain, 540, 1760);
 
     return canvas.toDataURL("image/png");
-  }, [result, shareCards, shareOrigin, shareSummary]);
+  }, [result, shareCards, shareSummary, shareUrl]);
 
   const handleShare = useCallback(async () => {
-    if (unlockingShare) return;
-    setUnlockingShare(true);
     if (typeof navigator !== "undefined" && navigator.share) {
-      try {
-        await navigator.share({
+      navigator
+        .share({
           title: "AI塔羅占卜",
           text: "我試咗個AI塔羅，結果有啲恐怖…",
-          url: shareOrigin || undefined,
+          url: shareUrl || undefined,
+        })
+        .catch(() => {
+          // Ignore cancel; click already counts as share action in this UX.
         });
-        await awardShareBonus();
-        return;
-      } catch {
-        // Fallback tools still available below.
-      }
+      handleShareCompleted();
+      return;
     }
-    setShowShareTools(true);
-    setUnlockingShare(false);
-  }, [awardShareBonus, shareOrigin, unlockingShare]);
+    window.open(platformUrls.x, "_blank", "noopener,noreferrer");
+    handleShareCompleted();
+  }, [handleShareCompleted, platformUrls.x, shareUrl]);
 
   const handlePlatformShare = useCallback(
     (url: string) => {
       window.open(url, "_blank", "noopener,noreferrer");
-      void awardShareBonus();
+      handleShareCompleted();
     },
-    [awardShareBonus]
+    [handleShareCompleted]
   );
 
   const handleDownloadImage = useCallback(() => {
@@ -195,18 +205,18 @@ export default function ResultClientPage({
     a.href = dataUrl;
     a.download = "arcanapath-result-share.png";
     a.click();
-    void awardShareBonus();
-  }, [awardShareBonus, drawShareImage]);
+    handleShareCompleted();
+  }, [drawShareImage, handleShareCompleted]);
 
   const handleCopyText = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(shareCopyText);
-      await awardShareBonus();
+      handleShareCompleted();
     } catch {
       setShareToast("複製失敗，請手動複製");
       setTimeout(() => setShareToast(""), 1600);
     }
-  }, [awardShareBonus]);
+  }, [handleShareCompleted]);
 
   const renderShareSection = useCallback(
     (title: string) => (
@@ -221,10 +231,10 @@ export default function ResultClientPage({
         <button
           type="button"
           onClick={handleShare}
-          disabled={unlockingShare}
+          disabled={shareTriggered}
           className="w-full bg-amber-700 hover:bg-amber-600 text-white font-serif font-semibold py-3 rounded-xl transition-colors disabled:opacity-60"
         >
-          {unlockingShare ? "處理中…" : "分享結果"}
+          {shareTriggered ? "已分享" : "分享結果"}
         </button>
 
         <div className="grid grid-cols-5 gap-2">
@@ -297,7 +307,7 @@ export default function ResultClientPage({
       platformUrls.x,
       canWebShare,
       showShareTools,
-      unlockingShare,
+      shareTriggered,
     ]
   );
 
