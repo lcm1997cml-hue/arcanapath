@@ -249,7 +249,7 @@ export default function ReadingClientPage() {
   }, []);
 
   useEffect(() => {
-    void refreshRemainingFromServer();
+    void refreshRemainingFromServer(1);
   }, [refreshRemainingFromServer]);
 
   useEffect(() => {
@@ -270,7 +270,7 @@ export default function ReadingClientPage() {
       // ignore sessionStorage errors
     }
     setShareNavigating(false);
-    void refreshRemainingFromServer(2);
+    void refreshRemainingFromServer(3);
     router.replace("/reading");
   }, [refreshRemainingFromServer, router, searchParams]);
 
@@ -486,6 +486,7 @@ export default function ReadingClientPage() {
           }
         }
         if (data?.awarded === false) setToast("今日已領取分享獎勵");
+        void refreshRemainingFromServer(2);
       })
       .catch(() => {
         // fire-and-forget

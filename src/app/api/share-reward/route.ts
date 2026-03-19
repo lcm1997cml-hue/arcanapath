@@ -59,7 +59,8 @@ export async function POST(req: NextRequest) {
       path: "/",
     });
     return res;
-  } catch {
+  } catch (err) {
+    console.error("[/api/share-reward] full error:", err);
     return NextResponse.json({ ok: false, error: "分享獎勵處理失敗" }, { status: 500 });
   }
 }
