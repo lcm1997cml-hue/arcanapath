@@ -196,8 +196,11 @@ export default function ReadingClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shareText = "我試咗個AI塔羅\n結果有啲恐怖😂\n你哋覺得準唔準？";
+  const websiteShareText =
+    "最近試咗 ArcanaPath AI 塔羅，幾準下 🔮\n可以即時抽牌、睇感情/事業/人生方向分析\n你都可以試下：";
   const appBase =
     (typeof window !== "undefined" ? process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin : "") || "";
+  const websiteShareUrl = `${appBase}/reading`;
 
   const [phase,     setPhase]     = useState<Phase>("input");
   const [question,  setQuestion]  = useState("");
@@ -223,7 +226,7 @@ export default function ReadingClientPage() {
     }
   }, []);
 
-  const refreshRemainingFromServer = useCallback(async () => {
+  const refreshRemainingFromServer = useCallback(async (retries = 0) => {
     try {
       const res = await fetch("/api/share-reward", { method: "GET", cache: "no-store" });
       const data = await res.json();
@@ -237,6 +240,11 @@ export default function ReadingClientPage() {
       }
     } catch {
       // ignore refresh errors
+    }
+    if (retries > 0) {
+      setTimeout(() => {
+        void refreshRemainingFromServer(retries - 1);
+      }, 450);
     }
   }, []);
 
@@ -261,7 +269,8 @@ export default function ReadingClientPage() {
     } catch {
       // ignore sessionStorage errors
     }
-    void refreshRemainingFromServer();
+    setShareNavigating(false);
+    void refreshRemainingFromServer(2);
     router.replace("/reading");
   }, [refreshRemainingFromServer, router, searchParams]);
 
@@ -488,17 +497,14 @@ export default function ReadingClientPage() {
   }, [lastReadingId, router, shareNavigating]);
 
   const handleShareUnlock = useCallback(() => {
-    if (!shareTargetUrl) {
-      setError("請先完成一次占卜結果再分享");
-      return;
-    }
+    const targetUrl = shareTargetUrl || websiteShareUrl;
 
     if (typeof navigator !== "undefined" && navigator.share) {
       navigator
         .share({
           title: "AI塔羅占卜",
           text: "我試咗個AI塔羅，結果有啲恐怖…",
-          url: shareTargetUrl,
+          url: targetUrl,
         })
         .catch(() => {
           // ignore cancel
@@ -507,21 +513,66 @@ export default function ReadingClientPage() {
       return;
     }
 
-    window.open(shareUrls.x, "_blank", "noopener,noreferrer");
+    const fallbackX = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+      "我試咗個AI塔羅，結果有啲恐怖…"
+    )}&url=${encodeURIComponent(targetUrl)}`;
+    window.open(fallbackX, "_blank", "noopener,noreferrer");
     completeShareFlow();
-  }, [completeShareFlow, shareTargetUrl, shareUrls.x]);
+  }, [completeShareFlow, shareTargetUrl, websiteShareUrl]);
 
   const handleOpenShareUrl = useCallback(
     (url: string) => {
-      if (!shareTargetUrl) {
-        setError("請先完成一次占卜結果再分享");
-        return;
-      }
       window.open(url, "_blank", "noopener,noreferrer");
       completeShareFlow();
     },
-    [completeShareFlow, shareTargetUrl]
+    [completeShareFlow]
   );
+
+  const websiteShareUrls = {
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(websiteShareUrl)}`,
+    x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+      "最近試咗 ArcanaPath AI 塔羅，幾準下 🔮"
+    )}&url=${encodeURIComponent(websiteShareUrl)}`,
+    whatsapp: `https://wa.me/?text=${encodeURIComponent(
+      `${websiteShareText}\n${websiteShareUrl}`
+    )}`,
+  };
+
+  const handleWebsiteShare = useCallback(() => {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      navigator
+        .share({
+          title: "ArcanaPath AI 塔羅",
+          text: websiteShareText,
+          url: websiteShareUrl,
+        })
+        .catch(() => {
+          // ignore cancel
+        });
+      completeShareFlow();
+      return;
+    }
+    window.open(websiteShareUrls.x, "_blank", "noopener,noreferrer");
+    completeShareFlow();
+  }, [completeShareFlow, websiteShareText, websiteShareUrl, websiteShareUrls.x]);
+
+  const handleCopyWebsiteLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(websiteShareUrl);
+      completeShareFlow();
+    } catch {
+      setToast("複製連結失敗");
+    }
+  }, [completeShareFlow, websiteShareUrl]);
+
+  const handleCopyWebsiteText = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(`${websiteShareText}\n${websiteShareUrl}`);
+      completeShareFlow();
+    } catch {
+      setToast("複製文案失敗");
+    }
+  }, [completeShareFlow, websiteShareText, websiteShareUrl]);
 
   // ── Phase step indicator ───────────────────────────────────
   const phaseOrder: Phase[] = ["input", "shuffle", "select", "preview"];
@@ -642,6 +693,33 @@ export default function ReadingClientPage() {
               <p className="text-center text-amber-400/70 text-xs font-serif">
                 剩餘免費次數：{remainingFreeHint}
               </p>
+            )}
+
+            {remainingFreeHint === 0 && (
+              <div className="rounded-xl border border-amber-800/40 bg-amber-950/25 p-4 space-y-3">
+                <div>
+                  <p className="text-amber-200 font-serif text-base font-semibold">免費次數已用完</p>
+                  <p className="text-amber-500/75 text-xs font-serif mt-1">
+                    分享 ArcanaPath 給朋友，即送你 +3 次免費占卜（每日一次）
+                  </p>
+                </div>
+                <button
+                  onClick={handleWebsiteShare}
+                  disabled={shareNavigating}
+                  className="w-full bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-serif font-semibold py-2.5 rounded-lg transition-colors"
+                >
+                  {shareNavigating ? "處理中…" : "分享連結"}
+                </button>
+                <div className="grid grid-cols-3 gap-2">
+                  <button onClick={() => handleOpenShareUrl(websiteShareUrls.facebook)} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">Facebook</button>
+                  <button onClick={() => handleOpenShareUrl(websiteShareUrls.x)} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">X</button>
+                  <button onClick={() => handleOpenShareUrl(websiteShareUrls.whatsapp)} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">WhatsApp</button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={handleCopyWebsiteLink} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">複製連結</button>
+                  <button onClick={handleCopyWebsiteText} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">複製文案</button>
+                </div>
+              </div>
             )}
           </div>
         )}
