@@ -92,7 +92,7 @@ function loadCardImage(relativePath: string): Promise<HTMLImageElement | null> {
   });
 }
 
-/** Draw face with cover fit inside rounded clip; reversed = 180° rotation. */
+/** Draw face with *contain* fit (full card visible, letterbox) + reversed = 180°. */
 function drawCardFace(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement | null,
@@ -111,9 +111,10 @@ function drawCardFace(
   else ctx.rect(x, y, w, h);
   ctx.clip();
 
+  ctx.fillStyle = "rgba(8, 4, 22, 0.98)";
+  ctx.fillRect(x, y, w, h);
+
   if (!img || !img.naturalWidth) {
-    ctx.fillStyle = "rgba(15, 8, 35, 0.95)";
-    ctx.fillRect(x, y, w, h);
     ctx.fillStyle = "rgba(248, 210, 140, 0.45)";
     ctx.font = "64px ui-serif, Georgia, serif";
     ctx.textAlign = "center";
@@ -126,7 +127,7 @@ function drawCardFace(
 
   const iw = img.naturalWidth;
   const ih = img.naturalHeight;
-  const scale = Math.max(w / iw, h / ih);
+  const scale = Math.min(w / iw, h / ih);
   const dw = iw * scale;
   const dh = ih * scale;
   const cx = x + w / 2;
@@ -167,7 +168,7 @@ export async function renderShareImageToDataUrlAsync(payload: ShareImagePayload)
   ctx.fillStyle = g1;
   ctx.fillRect(0, 0, W, H);
 
-  const margin = 48;
+  const margin = 40;
   drawRoundedFrame(
     ctx,
     margin,
@@ -191,29 +192,34 @@ export async function renderShareImageToDataUrlAsync(payload: ShareImagePayload)
     1.5
   );
 
-  let y = margin + 52;
+  let y = margin + 44;
   ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "rgba(252, 211, 77, 0.95)";
-  ctx.font = "600 36px ui-serif, Georgia, serif";
+  ctx.font = "600 32px ui-serif, Georgia, serif";
   ctx.fillText("✦ ArcanaPath", W / 2, y);
-  y += 46;
+  y += 40;
 
   ctx.fillStyle = "rgba(254, 243, 199, 0.88)";
-  ctx.font = "600 28px ui-serif, Georgia, serif";
+  ctx.font = "600 24px ui-serif, Georgia, serif";
   ctx.fillText("你的問題", W / 2, y);
-  y += 40;
-  ctx.font = "26px ui-serif, Georgia, serif";
-  const qLines = wrapLines(ctx, `「${payload.question}」`, W - margin * 2 - 80, 3);
+  y += 32;
+  ctx.font = "24px ui-serif, Georgia, serif";
+  const qLines = wrapLines(ctx, `「${payload.question}」`, W - margin * 2 - 72, 2);
   qLines.forEach((line) => {
     ctx.fillText(line, W / 2, y);
-    y += 34;
+    y += 30;
   });
-  y += 20;
+  y += 14;
 
-  const cardW = 300;
-  const cardSlotH = 460;
-  const imgH = 280;
-  const gap = 28;
+  /* —— 三張牌：加高圖區、contain 顯示完整牌面 —— */
+  const gap = 18;
+  const cardW = Math.floor((W - margin * 2 - 64 - gap * 2) / 3);
+  const cardSlotH = 548;
+  const labelH = 26;
+  const imgH = 410;
+  const orientH = 28;
+  const imgTop = (cy: number) => cy + labelH + 8;
   const totalW = cardW * 3 + gap * 2;
   const startX = (W - totalW) / 2;
   const cardY = y;
@@ -222,60 +228,62 @@ export async function renderShareImageToDataUrlAsync(payload: ShareImagePayload)
     const x = startX + idx * (cardW + gap);
     drawRoundedFrame(ctx, x, cardY, cardW, cardSlotH, 16, "rgba(212, 175, 55, 0.5)", "rgba(25, 12, 48, 0.92)", 2);
 
-    ctx.fillStyle = "rgba(251, 191, 36, 0.8)";
-    ctx.font = "600 20px ui-serif, Georgia, serif";
-    ctx.fillText(c.position, x + cardW / 2, cardY + 32);
+    ctx.fillStyle = "rgba(251, 191, 36, 0.85)";
+    ctx.font = "600 18px ui-serif, Georgia, serif";
+    ctx.fillText(c.position, x + cardW / 2, cardY + 20);
 
-    const imgX = x + 12;
-    const imgY = cardY + 48;
-    const imgW = cardW - 24;
+    const pad = 10;
+    const imgX = x + pad;
+    const imgY = imgTop(cardY);
+    const imgW = cardW - pad * 2;
     drawCardFace(ctx, images[idx] ?? null, imgX, imgY, imgW, imgH, c.reversed);
 
+    ctx.textAlign = "center";
     ctx.fillStyle = "#fde68a";
-    ctx.font = "600 22px ui-serif, Georgia, serif";
-    const nameLines = wrapLines(ctx, c.name_zh, cardW - 28, 2);
-    let ny = imgY + imgH + 22;
+    ctx.font = "600 20px ui-serif, Georgia, serif";
+    const nameLines = wrapLines(ctx, c.name_zh, cardW - 20, 2);
+    let ny = imgY + imgH + 14;
     nameLines.forEach((nl) => {
       ctx.fillText(nl, x + cardW / 2, ny);
-      ny += 28;
+      ny += 26;
     });
 
-    ctx.textAlign = "center";
-    ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "rgba(253, 230, 138, 0.98)";
-    ctx.font = "bold 22px ui-serif, Georgia, serif";
-    ctx.fillText(c.reversed ? "逆位" : "正位", x + cardW / 2, cardY + cardSlotH - 20);
+    ctx.font = "bold 20px ui-serif, Georgia, serif";
+    ctx.textBaseline = "middle";
+    ctx.fillText(c.reversed ? "逆位" : "正位", x + cardW / 2, cardY + cardSlotH - orientH / 2 - 6);
+    ctx.textBaseline = "alphabetic";
   });
 
-  y = cardY + cardSlotH + 44;
+  y = cardY + cardSlotH + 32;
 
   ctx.fillStyle = "rgba(251, 191, 36, 0.85)";
-  ctx.font = "600 24px ui-serif, Georgia, serif";
+  ctx.font = "600 22px ui-serif, Georgia, serif";
   ctx.fillText("AI 解讀摘錄", W / 2, y);
-  y += 36;
+  y += 30;
 
   ctx.fillStyle = "rgba(254, 243, 199, 0.82)";
-  ctx.font = "22px ui-serif, Georgia, serif";
-  const interpLines = wrapLines(ctx, payload.interpretationBrief, W - margin * 2 - 100, 4);
+  ctx.font = "20px ui-serif, Georgia, serif";
+  const interpLines = wrapLines(ctx, payload.interpretationBrief, W - margin * 2 - 88, 3);
   interpLines.forEach((line) => {
     ctx.fillText(line, W / 2, y);
-    y += 30;
+    y += 26;
   });
-  y += 20;
+  y += 14;
 
   ctx.fillStyle = "rgba(167, 139, 250, 0.9)";
-  ctx.font = "600 22px ui-serif, Georgia, serif";
+  ctx.font = "600 20px ui-serif, Georgia, serif";
   ctx.fillText("三牌總結", W / 2, y);
-  y += 32;
+  y += 28;
   ctx.fillStyle = "rgba(233, 213, 255, 0.88)";
-  ctx.font = "24px ui-serif, Georgia, serif";
-  const sumLines = wrapLines(ctx, payload.trioSummary, W - margin * 2 - 100, 2);
+  ctx.font = "22px ui-serif, Georgia, serif";
+  const sumLines = wrapLines(ctx, payload.trioSummary, W - margin * 2 - 88, 2);
   sumLines.forEach((line) => {
     ctx.fillText(line, W / 2, y);
-    y += 30;
+    y += 26;
   });
 
-  y = H - margin - 64;
+  y = H - margin - 52;
   ctx.fillStyle = "rgba(252, 211, 77, 0.55)";
   ctx.font = "20px ui-serif, Georgia, serif";
   ctx.fillText(payload.brandDomain, W / 2, y);

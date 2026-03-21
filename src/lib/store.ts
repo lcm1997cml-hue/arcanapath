@@ -337,6 +337,17 @@ export async function getLeadRemainingFree(email: string): Promise<number> {
   return Math.max(0, Number(lead.free_limit ?? 0) - Number(lead.usage_count ?? 0));
 }
 
+function isPgUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; message?: string };
+  if (e.code === "23505") return true;
+  const m = String(e.message ?? "").toLowerCase();
+  return m.includes("duplicate key") || m.includes("unique constraint");
+}
+
+/**
+ * Email +3：每日一次由 `lead_email_bonus` 約束；額度只加在現有 `leads.free_limit`
+ *（並同步 `visitor_usage.free_limit` 讓目前裝置上的剩餘次數立即更新）。
+ */
 export async function claimEmailBonusForVisitor(
   visitorId: string,
   email: string
@@ -359,7 +370,7 @@ export async function claimEmailBonusForVisitor(
   });
 
   if (insertBonusError) {
-    if ((insertBonusError as { code?: string }).code === "23505") {
+    if (isPgUniqueViolation(insertBonusError)) {
       const remainingFreeCount = await getVisitorRemainingFree(normalizedVisitorId);
       return {
         awarded: false,
