@@ -1,11 +1,15 @@
 /**
- * 9:16 share image — dark mystic gradient, framed cards, real reading text only.
+ * 9:16 share image — dark mystic gradient, framed cards with real RWS faces, reading text.
  */
+
+import { getCardImagePath } from "@/lib/tarot/utils";
 
 export type ShareImageCardSlot = {
   position: string;
   name_zh: string;
   reversed: boolean;
+  /** Deck image filename (passed to getCardImagePath) */
+  imageFile: string;
 };
 
 export type ShareImagePayload = {
@@ -65,14 +69,79 @@ function drawRoundedFrame(
   ctx.stroke();
 }
 
-export function renderShareImageToDataUrl(payload: ShareImagePayload): string {
+function loadCardImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const im = new Image();
+    im.decoding = "async";
+    im.onload = () => resolve(im);
+    im.onerror = () => resolve(null);
+    im.src = src;
+  });
+}
+
+/** Draw face with cover fit inside rounded clip; reversed = 180° rotation. */
+function drawCardFace(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  reversed: boolean
+) {
+  const r = 10;
+  ctx.save();
+  ctx.beginPath();
+  const rr = (ctx as CanvasRenderingContext2D & { roundRect?(a: number, b: number, c: number, d: number, e: number): void })
+    .roundRect;
+  if (typeof rr === "function") rr.call(ctx, x, y, w, h, r);
+  else ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  if (!img || !img.naturalWidth) {
+    ctx.fillStyle = "rgba(15, 8, 35, 0.95)";
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = "rgba(248, 210, 140, 0.45)";
+    ctx.font = "64px ui-serif, Georgia, serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("✦", x + w / 2, y + h / 2);
+    ctx.restore();
+    drawRoundedFrame(ctx, x, y, w, h, r, "rgba(248, 210, 140, 0.35)", "rgba(0,0,0,0)", 1);
+    return;
+  }
+
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+  const scale = Math.max(w / iw, h / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  ctx.translate(cx, cy);
+  if (reversed) ctx.rotate(Math.PI);
+  ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+  ctx.restore();
+
+  drawRoundedFrame(ctx, x, y, w, h, r, "rgba(248, 210, 140, 0.45)", "rgba(0,0,0,0)", 1.5);
+}
+
+/**
+ * Full-quality share PNG with real card art (async — loads /cards/rws1909/*).
+ */
+export async function renderShareImageToDataUrlAsync(payload: ShareImagePayload): Promise<string> {
+  const paths = payload.cards.map((c) => {
+    const p = getCardImagePath(c.imageFile);
+    return p ? p : "";
+  });
+  const images = await Promise.all(paths.map((p) => (p ? loadCardImage(p) : Promise.resolve(null))));
+
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
   if (!ctx) return "";
 
-  // Background — deep purple / black mystic
   const g0 = ctx.createRadialGradient(W * 0.5, H * 0.15, 80, W * 0.5, H * 0.5, H * 0.85);
   g0.addColorStop(0, "#3d2a6b");
   g0.addColorStop(0.35, "#1a0d32");
@@ -88,7 +157,6 @@ export function renderShareImageToDataUrl(payload: ShareImagePayload): string {
   ctx.fillStyle = g1;
   ctx.fillRect(0, 0, W, H);
 
-  // Outer ornate frame
   const margin = 48;
   drawRoundedFrame(
     ctx,
@@ -113,90 +181,91 @@ export function renderShareImageToDataUrl(payload: ShareImagePayload): string {
     1.5
   );
 
-  let y = margin + 56;
+  let y = margin + 52;
   ctx.textAlign = "center";
   ctx.fillStyle = "rgba(252, 211, 77, 0.95)";
-  ctx.font = "600 38px ui-serif, Georgia, serif";
+  ctx.font = "600 36px ui-serif, Georgia, serif";
   ctx.fillText("✦ ArcanaPath", W / 2, y);
-  y += 52;
+  y += 46;
 
   ctx.fillStyle = "rgba(254, 243, 199, 0.88)";
-  ctx.font = "600 30px ui-serif, Georgia, serif";
-  const qPrefix = "你的問題";
-  ctx.fillText(qPrefix, W / 2, y);
-  y += 44;
-  ctx.font = "28px ui-serif, Georgia, serif";
+  ctx.font = "600 28px ui-serif, Georgia, serif";
+  ctx.fillText("你的問題", W / 2, y);
+  y += 40;
+  ctx.font = "26px ui-serif, Georgia, serif";
   const qLines = wrapLines(ctx, `「${payload.question}」`, W - margin * 2 - 80, 3);
   qLines.forEach((line) => {
     ctx.fillText(line, W / 2, y);
-    y += 36;
+    y += 34;
   });
-  y += 28;
+  y += 20;
 
-  // Three cards
-  const cardW = 290;
-  const cardH = 400;
-  const gap = 36;
+  const cardW = 300;
+  const cardSlotH = 460;
+  const imgH = 280;
+  const gap = 28;
   const totalW = cardW * 3 + gap * 2;
   const startX = (W - totalW) / 2;
   const cardY = y;
 
   payload.cards.slice(0, 3).forEach((c, idx) => {
     const x = startX + idx * (cardW + gap);
-    // Card chrome
-    drawRoundedFrame(ctx, x, cardY, cardW, cardH, 16, "rgba(212, 175, 55, 0.5)", "rgba(25, 12, 48, 0.92)", 2);
-    drawRoundedFrame(ctx, x + 8, cardY + 8, cardW - 16, cardH - 16, 12, "rgba(248, 210, 140, 0.2)", "rgba(10, 5, 22, 0.6)", 1);
+    drawRoundedFrame(ctx, x, cardY, cardW, cardSlotH, 16, "rgba(212, 175, 55, 0.5)", "rgba(25, 12, 48, 0.92)", 2);
 
-    ctx.fillStyle = "rgba(251, 191, 36, 0.75)";
-    ctx.font = "600 22px ui-serif, Georgia, serif";
-    ctx.fillText(c.position, x + cardW / 2, cardY + 44);
+    ctx.fillStyle = "rgba(251, 191, 36, 0.8)";
+    ctx.font = "600 20px ui-serif, Georgia, serif";
+    ctx.fillText(c.position, x + cardW / 2, cardY + 32);
+
+    const imgX = x + 12;
+    const imgY = cardY + 48;
+    const imgW = cardW - 24;
+    drawCardFace(ctx, images[idx] ?? null, imgX, imgY, imgW, imgH, c.reversed);
 
     ctx.fillStyle = "#fde68a";
-    ctx.font = "600 26px ui-serif, Georgia, serif";
-    const nameLines = wrapLines(ctx, c.name_zh, cardW - 36, 2);
-    let ny = cardY + 120;
+    ctx.font = "600 22px ui-serif, Georgia, serif";
+    const nameLines = wrapLines(ctx, c.name_zh, cardW - 28, 2);
+    let ny = imgY + imgH + 22;
     nameLines.forEach((nl) => {
       ctx.fillText(nl, x + cardW / 2, ny);
-      ny += 32;
+      ny += 28;
     });
 
-    ctx.fillStyle = "rgba(252, 211, 77, 0.65)";
-    ctx.font = "22px ui-serif, Georgia, serif";
-    ctx.fillText(c.reversed ? "逆位" : "正位", x + cardW / 2, cardY + cardH - 36);
+    ctx.fillStyle = "rgba(252, 211, 77, 0.7)";
+    ctx.font = "20px ui-serif, Georgia, serif";
+    ctx.fillText(c.reversed ? "逆位" : "正位", x + cardW / 2, cardY + cardSlotH - 22);
   });
 
-  y = cardY + cardH + 56;
+  y = cardY + cardSlotH + 44;
 
-  ctx.textAlign = "center";
   ctx.fillStyle = "rgba(251, 191, 36, 0.85)";
-  ctx.font = "600 26px ui-serif, Georgia, serif";
+  ctx.font = "600 24px ui-serif, Georgia, serif";
   ctx.fillText("AI 解讀摘錄", W / 2, y);
-  y += 40;
+  y += 36;
 
   ctx.fillStyle = "rgba(254, 243, 199, 0.82)";
-  ctx.font = "24px ui-serif, Georgia, serif";
-  const interpLines = wrapLines(ctx, payload.interpretationBrief, W - margin * 2 - 100, 5);
+  ctx.font = "22px ui-serif, Georgia, serif";
+  const interpLines = wrapLines(ctx, payload.interpretationBrief, W - margin * 2 - 100, 4);
   interpLines.forEach((line) => {
     ctx.fillText(line, W / 2, y);
-    y += 34;
+    y += 30;
   });
-  y += 28;
+  y += 20;
 
   ctx.fillStyle = "rgba(167, 139, 250, 0.9)";
-  ctx.font = "600 24px ui-serif, Georgia, serif";
+  ctx.font = "600 22px ui-serif, Georgia, serif";
   ctx.fillText("三牌總結", W / 2, y);
-  y += 36;
+  y += 32;
   ctx.fillStyle = "rgba(233, 213, 255, 0.88)";
-  ctx.font = "26px ui-serif, Georgia, serif";
+  ctx.font = "24px ui-serif, Georgia, serif";
   const sumLines = wrapLines(ctx, payload.trioSummary, W - margin * 2 - 100, 2);
   sumLines.forEach((line) => {
     ctx.fillText(line, W / 2, y);
-    y += 34;
+    y += 30;
   });
 
-  y = H - margin - 72;
+  y = H - margin - 64;
   ctx.fillStyle = "rgba(252, 211, 77, 0.55)";
-  ctx.font = "22px ui-serif, Georgia, serif";
+  ctx.font = "20px ui-serif, Georgia, serif";
   ctx.fillText(payload.brandDomain, W / 2, y);
 
   return canvas.toDataURL("image/png");
@@ -210,21 +279,29 @@ function firstSentence(text: string): string {
 }
 
 /** Build payload from a ReadingResult-like object (client or API JSON). */
-export function buildShareImagePayloadFromReading(result: {
-  question: string;
-  cards?: Array<{ card?: { name_zh?: string }; reversed?: boolean; position?: string }>;
-  freeReading?: {
-    headline?: string;
-    mainAxis?: string;
-    cardReadings?: Array<{ interpretation?: string }>;
-  };
-}, brandDomain: string): ShareImagePayload {
+export function buildShareImagePayloadFromReading(
+  result: {
+    question: string;
+    cards?: Array<{
+      card?: { name_zh?: string; image?: string };
+      reversed?: boolean;
+      position?: string;
+    }>;
+    freeReading?: {
+      headline?: string;
+      mainAxis?: string;
+      cardReadings?: Array<{ interpretation?: string }>;
+    };
+  },
+  brandDomain: string
+): ShareImagePayload {
   const cardsRaw = Array.isArray(result.cards) ? result.cards.slice(0, 3) : [];
   const positions = ["過去", "現在", "未來"];
   const cards: ShareImageCardSlot[] = cardsRaw.map((item, i) => ({
     position: (item.position as string) || positions[i] || `第${i + 1}張`,
     name_zh: item.card?.name_zh ?? "—",
     reversed: !!item.reversed,
+    imageFile: item.card?.image ?? "",
   }));
 
   const fr = result.freeReading ?? {};
@@ -253,7 +330,7 @@ export function buildShareImagePayloadFromReading(result: {
 
   return {
     question: result.question || "—",
-    cards: cards.length ? cards : positions.map((p, i) => ({ position: p, name_zh: "—", reversed: false })),
+    cards: cards.length ? cards : positions.map((p) => ({ position: p, name_zh: "—", reversed: false, imageFile: "" })),
     interpretationBrief,
     trioSummary: trioSummary.slice(0, 80),
     brandDomain: brandDomain || "ArcanaPath",

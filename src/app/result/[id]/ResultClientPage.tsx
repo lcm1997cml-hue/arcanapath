@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { ReadingResult, UserRole } from "@/types/reading";
 import ReadingSections from "@/components/ReadingSections";
 import CheckoutPlanButtons from "@/components/CheckoutPlanButtons";
-import { buildShareImagePayloadFromReading, renderShareImageToDataUrl } from "@/lib/shareImageCanvas";
+import { buildShareImagePayloadFromReading, renderShareImageToDataUrlAsync } from "@/lib/shareImageCanvas";
 
 interface ResultClientPageProps {
   id: string;
@@ -30,8 +30,8 @@ export default function ResultClientPage({
   userRole,
   isLoggedIn,
 }: ResultClientPageProps) {
-  const [showShareTools, setShowShareTools] = useState(false);
   const [shareToast, setShareToast] = useState("");
+  const [downloadBusy, setDownloadBusy] = useState(false);
 
   const paidLabelMap: Record<string, string> = {
     "19": "基本完整解讀",
@@ -65,17 +65,10 @@ export default function ResultClientPage({
     }),
     [shareUrl, shareCopyRich]
   );
-  const canWebShare = typeof navigator !== "undefined" && "share" in navigator;
-
   const notifyShared = useCallback(() => {
     setShareToast("已開啟分享");
     setTimeout(() => setShareToast(""), 2200);
   }, []);
-
-  const drawShareImage = useCallback(() => {
-    const payload = buildShareImagePayloadFromReading(result, brandDomain);
-    return renderShareImageToDataUrl(payload);
-  }, [result, brandDomain]);
 
   const handleShare = useCallback(async () => {
     if (typeof navigator !== "undefined" && navigator.share) {
@@ -101,16 +94,40 @@ export default function ResultClientPage({
     [notifyShared]
   );
 
-  const handleDownloadImage = useCallback(() => {
-    const dataUrl = drawShareImage();
-    if (!dataUrl) return;
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = "arcanapath-result-share.png";
-    a.click();
-    setShareToast("圖片已下載");
-    setTimeout(() => setShareToast(""), 2200);
-  }, [drawShareImage]);
+  const handleDownloadImage = useCallback(async () => {
+    setDownloadBusy(true);
+    try {
+      const payload = buildShareImagePayloadFromReading(result, brandDomain);
+      const dataUrl = await renderShareImageToDataUrlAsync(payload);
+      if (!dataUrl) {
+        setShareToast("無法產生圖片");
+        setTimeout(() => setShareToast(""), 2200);
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = "arcanapath-result-share.png";
+      a.click();
+      setShareToast("圖片已下載");
+      setTimeout(() => setShareToast(""), 2200);
+    } catch {
+      setShareToast("下載失敗，請重試");
+      setTimeout(() => setShareToast(""), 2200);
+    } finally {
+      setDownloadBusy(false);
+    }
+  }, [result, brandDomain]);
+
+  const handleCopyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareToast("連結已複製");
+      setTimeout(() => setShareToast(""), 2200);
+    } catch {
+      setShareToast("複製失敗，請手動複製");
+      setTimeout(() => setShareToast(""), 1600);
+    }
+  }, [shareUrl]);
 
   const handleCopyText = useCallback(async () => {
     try {
@@ -126,14 +143,7 @@ export default function ResultClientPage({
   const renderShareSection = useCallback(
     (title: string) => (
       <div className="mt-8 rounded-xl border border-amber-800/30 bg-amber-950/20 p-5 space-y-4">
-        <div className="space-y-1">
-          <p className="text-amber-200 font-serif text-lg font-semibold">{title}</p>
-          <p className="text-amber-500/70 text-xs font-serif leading-relaxed">
-            公開連結：<span className="text-amber-400/80 break-all">{shareUrl}</span>
-            <br />
-            純分享、不送占卜次數；精緻 9:16 圖片由你本次牌面與 AI 解讀生成。
-          </p>
-        </div>
+        <p className="text-amber-200 font-serif text-lg font-semibold">{title}</p>
 
         <button
           type="button"
@@ -181,28 +191,36 @@ export default function ResultClientPage({
           </button>
         </div>
 
-        {(showShareTools || !canWebShare) && (
-          <div className="grid grid-cols-2 gap-2 border-t border-amber-900/35 pt-4">
-            <button
-              type="button"
-              onClick={handleDownloadImage}
-              className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg"
-            >
-              下載分享圖片
-            </button>
-            <button
-              type="button"
-              onClick={handleCopyText}
-              className="border border-amber-800/40 text-amber-200 font-serif text-sm py-2 rounded-lg"
-            >
-              複製分享文案
-            </button>
-          </div>
-        )}
+        <div className="grid grid-cols-3 gap-2 border-t border-amber-900/35 pt-4">
+          <button
+            type="button"
+            onClick={() => void handleCopyLink()}
+            className="border border-amber-800/40 text-amber-200 font-serif text-xs py-2 rounded-lg"
+          >
+            複製連結
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleCopyText()}
+            className="border border-amber-800/40 text-amber-200 font-serif text-xs py-2 rounded-lg"
+          >
+            複製文案
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDownloadImage()}
+            disabled={downloadBusy}
+            className="border border-amber-800/40 text-amber-200 font-serif text-xs py-2 rounded-lg disabled:opacity-50"
+          >
+            {downloadBusy ? "產生中…" : "下載結果圖片"}
+          </button>
+        </div>
       </div>
     ),
     [
+      handleCopyLink,
       handleCopyText,
+      downloadBusy,
       handleDownloadImage,
       handlePlatformShare,
       handleShare,
@@ -211,8 +229,6 @@ export default function ResultClientPage({
       platformUrls.threads,
       platformUrls.whatsapp,
       platformUrls.x,
-      canWebShare,
-      showShareTools,
     ]
   );
 

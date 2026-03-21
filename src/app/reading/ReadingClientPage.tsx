@@ -10,14 +10,12 @@
 //  - Shuffle animation has more steps and better visual weight
 // =============================================================
 
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Topic, DrawnCard } from "@/types/reading";
-import { TOPIC_LABELS } from "@/types/reading";
 import { deck, serializeDrawnCards } from "@/lib/tarot/utils";
 import TarotCard from "@/components/TarotCard";
 import ReadingFan from "@/components/ReadingFan";
-import { buildShareImagePayloadFromReading, renderShareImageToDataUrl } from "@/lib/shareImageCanvas";
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -196,12 +194,6 @@ function SelectedPreview({
 export default function ReadingClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const websiteShareText =
-    "ArcanaPath AI 塔羅 · 深色神秘風抽牌體驗 🔮\n即時解讀感情、事業與人生方向：";
-  const appBase =
-    (typeof window !== "undefined" ? process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin : "") || "";
-  const websiteShareUrl = `${appBase}/reading`;
-
   const [phase,     setPhase]     = useState<Phase>("input");
   const [question,  setQuestion]  = useState("");
   const [topic,     setTopic]     = useState<Topic>("love");
@@ -213,7 +205,6 @@ export default function ReadingClientPage() {
   const [bonusEmail, setBonusEmail] = useState("");
   const [emailBonusLoading, setEmailBonusLoading] = useState(false);
   const [creditsCheckoutLoading, setCreditsCheckoutLoading] = useState(false);
-  const [sharePreviewJson, setSharePreviewJson] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     try {
@@ -228,19 +219,6 @@ export default function ReadingClientPage() {
       // ignore localStorage errors
     }
   }, []);
-
-  useEffect(() => {
-    if (!lastReadingId) {
-      setSharePreviewJson(null);
-      return;
-    }
-    void fetch(`/api/share-reading-preview?id=${encodeURIComponent(lastReadingId)}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d?.ok) setSharePreviewJson(d);
-      })
-      .catch(() => setSharePreviewJson(null));
-  }, [lastReadingId]);
 
   const refreshRemainingFromServer = useCallback(async (retries = 0) => {
     try {
@@ -393,79 +371,6 @@ export default function ReadingClientPage() {
     }
   }, [drawnCards, question, topic, router]);
 
-  const shareTargetUrl = lastReadingId ? `${appBase}/r/${lastReadingId}` : "";
-  const brandDomain = useMemo(
-    () => appBase.replace(/^https?:\/\//, "").split("/")[0] || "ArcanaPath",
-    [appBase]
-  );
-
-  const resultShareBlurb = useMemo(() => {
-    const fr = sharePreviewJson?.freeReading as { headline?: string } | undefined;
-    const h = (fr?.headline ?? "").trim();
-    if (shareTargetUrl && h) return `${h}\n${shareTargetUrl}`;
-    if (shareTargetUrl) return `ArcanaPath 塔羅 · 我的抽牌結果\n${shareTargetUrl}`;
-    return `${websiteShareText}\n${websiteShareUrl}`;
-  }, [sharePreviewJson, shareTargetUrl, websiteShareText, websiteShareUrl]);
-
-  const shareUrls = useMemo(
-    () => ({
-      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(resultShareBlurb)}`,
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareTargetUrl || websiteShareUrl)}`,
-      whatsapp: `https://wa.me/?text=${encodeURIComponent(resultShareBlurb)}`,
-      instagram: "https://www.instagram.com/",
-      threads: "https://www.threads.net/",
-    }),
-    [resultShareBlurb, shareTargetUrl, websiteShareUrl]
-  );
-
-  const drawResultShareImage = useCallback((): string => {
-    if (!sharePreviewJson || typeof sharePreviewJson.question !== "string") return "";
-    const payload = buildShareImagePayloadFromReading(
-      sharePreviewJson as unknown as Parameters<typeof buildShareImagePayloadFromReading>[0],
-      brandDomain
-    );
-    return renderShareImageToDataUrl(payload);
-  }, [sharePreviewJson, brandDomain]);
-
-  const downloadShareImage = useCallback(() => {
-    const dataUrl = drawResultShareImage();
-    if (!dataUrl) {
-      setToast(lastReadingId ? "無法產生圖片，請稍後再試" : "完成一次占卜後可下載分享圖");
-      return;
-    }
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = "arcanapath-share.png";
-    a.click();
-    setToast("圖片已下載");
-  }, [drawResultShareImage, lastReadingId]);
-
-  const copyResultShareText = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(resultShareBlurb);
-      setToast("文案已複製");
-    } catch {
-      setToast("複製失敗，請手動複製");
-    }
-  }, [resultShareBlurb]);
-
-  const handleOpenShareUrl = useCallback((url: string) => {
-    window.open(url, "_blank", "noopener,noreferrer");
-    setToast("已開啟分享");
-  }, []);
-
-  const handleNativeShare = useCallback(
-    (url: string, title: string, text: string) => {
-      if (typeof navigator !== "undefined" && navigator.share) {
-        navigator.share({ title, text, url }).catch(() => {});
-        setToast("已開啟分享");
-        return;
-      }
-      handleOpenShareUrl(shareUrls.x);
-    },
-    [handleOpenShareUrl, shareUrls.x]
-  );
-
   const submitEmailBonus = useCallback(async () => {
     setEmailBonusLoading(true);
     try {
@@ -513,11 +418,6 @@ export default function ReadingClientPage() {
       setCreditsCheckoutLoading(false);
     }
   }, []);
-
-  const handleResultNativeShare = useCallback(() => {
-    const url = shareTargetUrl || websiteShareUrl;
-    handleNativeShare(url, "ArcanaPath 塔羅", resultShareBlurb);
-  }, [handleNativeShare, shareTargetUrl, websiteShareUrl, resultShareBlurb]);
 
   // ── Phase step indicator ───────────────────────────────────
   const phaseOrder: Phase[] = ["input", "shuffle", "select", "preview"];
@@ -632,7 +532,7 @@ export default function ReadingClientPage() {
             </button>
 
             <p className="text-center text-amber-900/40 text-xs font-serif">
-              訪客可先免費試用 1 次；次數用完可留 email、購買額度或純分享結果
+              訪客可先免費試用 1 次；次數用完可留 email 或購買額度
             </p>
             {remainingFreeHint !== null && (
               <p className="text-center text-amber-400/70 text-xs font-serif">
@@ -678,36 +578,6 @@ export default function ReadingClientPage() {
                   >
                     {creditsCheckoutLoading ? "前往 Stripe…" : "US $9 · 購買 3 次占卜"}
                   </button>
-                </div>
-
-                <div className="rounded-xl border border-amber-800/40 bg-amber-950/20 p-4 space-y-3">
-                  <p className="text-amber-200 font-serif text-base font-semibold">分享你的塔羅結果</p>
-                  <p className="text-amber-500/75 text-xs font-serif leading-relaxed">
-                    純分享、不送次數；用精美圖片與公開連結，邀請朋友一齊試玩
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleResultNativeShare}
-                    className="w-full bg-amber-800/80 hover:bg-amber-700 text-white font-serif font-semibold py-2.5 rounded-lg transition-colors"
-                  >
-                    分享（系統選單）
-                  </button>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button type="button" onClick={() => handleOpenShareUrl(shareUrls.facebook)} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">Facebook</button>
-                    <button type="button" onClick={() => handleOpenShareUrl(shareUrls.x)} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">X</button>
-                    <button type="button" onClick={() => handleOpenShareUrl(shareUrls.whatsapp)} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">WhatsApp</button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => handleOpenShareUrl(shareUrls.instagram)} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">Instagram</button>
-                    <button type="button" onClick={() => handleOpenShareUrl(shareUrls.threads)} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">Threads</button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => { void copyResultShareText(); }} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">複製連結文案</button>
-                    <button type="button" onClick={downloadShareImage} className="text-xs font-serif text-amber-200 border border-amber-800/40 rounded-lg py-2">下載分享圖片</button>
-                  </div>
-                  {!lastReadingId && (
-                    <p className="text-amber-700/60 text-[11px] font-serif text-center">完成至少一次占卜後，分享圖會顯示你的真實牌面與解讀</p>
-                  )}
                 </div>
               </div>
             )}
@@ -830,27 +700,6 @@ export default function ReadingClientPage() {
               >
                 {creditsCheckoutLoading ? "前往付款…" : "前往 Stripe 付款"}
               </button>
-            </div>
-
-            <div className="rounded-xl border border-amber-800/35 bg-amber-950/15 p-3 space-y-2">
-              <p className="text-amber-200 font-serif text-sm font-semibold">純分享結果</p>
-              <p className="text-amber-500/70 text-xs font-serif">不增加次數，公開連結 {shareTargetUrl || websiteShareUrl}</p>
-              <button
-                type="button"
-                onClick={handleResultNativeShare}
-                className="w-full bg-amber-800/70 hover:bg-amber-700 text-white font-serif font-semibold py-2 rounded-lg text-sm"
-              >
-                系統分享
-              </button>
-              <div className="grid grid-cols-3 gap-1.5">
-                <button type="button" onClick={() => handleOpenShareUrl(shareUrls.facebook)} className="text-[11px] font-serif text-amber-200 border border-amber-800/40 rounded-lg py-1.5">Facebook</button>
-                <button type="button" onClick={() => handleOpenShareUrl(shareUrls.x)} className="text-[11px] font-serif text-amber-200 border border-amber-800/40 rounded-lg py-1.5">X</button>
-                <button type="button" onClick={() => handleOpenShareUrl(shareUrls.whatsapp)} className="text-[11px] font-serif text-amber-200 border border-amber-800/40 rounded-lg py-1.5">WhatsApp</button>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                <button type="button" onClick={() => void copyResultShareText()} className="text-[11px] font-serif text-amber-200 border border-amber-800/40 rounded-lg py-1.5">複製文案</button>
-                <button type="button" onClick={downloadShareImage} className="text-[11px] font-serif text-amber-200 border border-amber-800/40 rounded-lg py-1.5">下載分享圖</button>
-              </div>
             </div>
 
             <a
