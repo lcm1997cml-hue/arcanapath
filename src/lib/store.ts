@@ -203,6 +203,7 @@ type LeadRow = {
   email: string;
   usage_count: number;
   free_limit: number;
+  last_email_bonus_date: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -229,7 +230,7 @@ export async function getLeadByEmail(email: string): Promise<LeadRow | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .select("id,email,usage_count,free_limit,created_at,updated_at")
+    .select("id,email,usage_count,free_limit,last_email_bonus_date,created_at,updated_at")
     .eq("email", normalizedEmail)
     .maybeSingle();
   if (error) throw error;
@@ -244,8 +245,8 @@ export async function getOrCreateLeadByEmail(email: string): Promise<LeadRow> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .insert({ email: normalizedEmail, usage_count: 0, free_limit: 3 })
-    .select("id,email,usage_count,free_limit,created_at,updated_at")
+    .insert({ email: normalizedEmail, usage_count: 0, free_limit: 0 })
+    .select("id,email,usage_count,free_limit,last_email_bonus_date,created_at,updated_at")
     .single();
   if (error) throw error;
   return data as LeadRow;
@@ -326,7 +327,7 @@ export async function addLeadFreeCredits(email: string, credits: number): Promis
     .from("leads")
     .update({ free_limit: nextFreeLimit })
     .eq("id", lead.id)
-    .select("id,email,usage_count,free_limit,created_at,updated_at")
+    .select("id,email,usage_count,free_limit,last_email_bonus_date,created_at,updated_at")
     .single();
   if (error) throw error;
   return data as LeadRow;
@@ -337,41 +338,45 @@ export async function getLeadRemainingFree(email: string): Promise<number> {
   return Math.max(0, Number(lead.free_limit ?? 0) - Number(lead.usage_count ?? 0));
 }
 
-export async function claimDailyShareBonus(
+export async function claimEmailBonusForVisitor(
   visitorId: string,
-  credits = 3
-): Promise<{ awarded: boolean; remainingFree: number }> {
-  const r = await claimShareReward({ visitorId, credits });
-  return { awarded: r.rewarded, remainingFree: r.remainingFreeCount };
-}
-
-export async function claimShareReward(params: {
-  visitorId: string;
-  credits?: number;
-}): Promise<{ rewarded: boolean; remainingFreeCount: number }> {
-  const credits = Math.max(0, params.credits ?? 3);
+  email: string
+): Promise<{
+  awarded: boolean;
+  remainingFreeCount: number;
+  message?: string;
+}> {
+  if (!isValidLeadEmail(email)) {
+    throw new Error("invalid email");
+  }
+  const normalizedEmail = normalizeLeadEmail(email);
+  const normalizedVisitorId = visitorId.trim();
   const today = new Date().toISOString().slice(0, 10);
-  const normalizedVisitorId = params.visitorId.trim();
-  const supabase = getSupabaseAdmin();
+  const lead = await getOrCreateLeadByEmail(normalizedEmail);
+  const lastBonus = lead.last_email_bonus_date
+    ? String(lead.last_email_bonus_date).slice(0, 10)
+    : null;
 
-  const { error: insertError } = await supabase.from("visitor_share_bonus").insert({
-    visitor_id: normalizedVisitorId,
-    bonus_date: today,
-    credits,
-  });
-
-  if (insertError) {
-    if ((insertError as { code?: string }).code === "23505") {
-      const remainingFreeCount = await getVisitorRemainingFree(normalizedVisitorId);
-      return { rewarded: false, remainingFreeCount };
-    }
-    throw insertError;
+  if (lastBonus === today) {
+    const remainingFreeCount = await getVisitorRemainingFree(normalizedVisitorId);
+    return {
+      awarded: false,
+      remainingFreeCount,
+      message: "今日已領取 email 獎勵",
+    };
   }
 
-  const after = await addVisitorFreeCredits(normalizedVisitorId, credits);
+  const after = await addVisitorFreeCredits(normalizedVisitorId, 3);
+
+  const supabase = getSupabaseAdmin();
+  const { error: updateLeadError } = await supabase
+    .from("leads")
+    .update({ last_email_bonus_date: today })
+    .eq("id", lead.id);
+  if (updateLeadError) throw updateLeadError;
   const remainingFreeCount = Math.max(
     0,
     Number(after.free_limit ?? 0) - Number(after.usage_count ?? 0)
   );
-  return { rewarded: true, remainingFreeCount };
+  return { awarded: true, remainingFreeCount };
 }

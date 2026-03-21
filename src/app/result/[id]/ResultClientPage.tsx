@@ -2,10 +2,10 @@
 
 import React, { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { ReadingResult, UserRole } from "@/types/reading";
 import ReadingSections from "@/components/ReadingSections";
 import CheckoutPlanButtons from "@/components/CheckoutPlanButtons";
+import { buildShareImagePayloadFromReading, renderShareImageToDataUrl } from "@/lib/shareImageCanvas";
 
 interface ResultClientPageProps {
   id: string;
@@ -30,10 +30,8 @@ export default function ResultClientPage({
   userRole,
   isLoggedIn,
 }: ResultClientPageProps) {
-  const router = useRouter();
   const [showShareTools, setShowShareTools] = useState(false);
   const [shareToast, setShareToast] = useState("");
-  const [shareTriggered, setShareTriggered] = useState(false);
 
   const paidLabelMap: Record<string, string> = {
     "19": "基本完整解讀",
@@ -44,163 +42,63 @@ export default function ResultClientPage({
     master: "完整 AI 深度解讀",
   };
 
-  const shareCopyText = "我試咗個AI塔羅\n結果有啲恐怖😂\n你哋覺得準唔準？";
   const shareOrigin = useMemo(() => {
     if (typeof window === "undefined") return process.env.NEXT_PUBLIC_APP_URL ?? "";
     return process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
   }, []);
   const shareUrl = useMemo(() => `${shareOrigin}/r/${id}`, [shareOrigin, id]);
-  const shareSummary = useMemo(() => {
-    const raw =
-      result?.freeReading?.headline ??
-      result?.freeReading?.nextStep ??
-      result?.freeReading?.mainAxis ??
-      "你正在進入人生轉折點";
-    const cleaned = raw.replace(/\s+/g, " ").trim();
-    return cleaned.slice(0, 20);
-  }, [result]);
-  const shareCards = useMemo(() => (Array.isArray(result?.cards) ? result.cards.slice(0, 3) : []), [result]);
+  const brandDomain = useMemo(
+    () => shareUrl.replace(/^https?:\/\//, "").split("/")[0] || "ArcanaPath",
+    [shareUrl]
+  );
+  const shareCopyRich = useMemo(() => {
+    const h = (result.freeReading?.headline ?? "").trim();
+    return h ? `${h}\n${shareUrl}` : `ArcanaPath 塔羅 · 我的抽牌結果\n${shareUrl}`;
+  }, [result, shareUrl]);
   const platformUrls = useMemo(
     () => ({
       facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
-      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent("我啱啱做咗一次 AI 塔羅占卜")}&url=${encodeURIComponent(
-        shareUrl
-      )}`,
-      whatsapp: `https://wa.me/?text=${encodeURIComponent(`我啱啱做咗一次 AI 塔羅占卜：${shareUrl}`)}`,
+      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareCopyRich)}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(shareCopyRich)}`,
       instagram: "https://www.instagram.com/",
       threads: "https://www.threads.net/",
     }),
-    [shareUrl]
+    [shareUrl, shareCopyRich]
   );
   const canWebShare = typeof navigator !== "undefined" && "share" in navigator;
 
-  const handleShareCompleted = useCallback(async () => {
-    if (shareTriggered) return;
-    setShareTriggered(true);
-    setShareToast("🎉 已解鎖 +3 次占卜");
-    try {
-      sessionStorage.setItem("arcana_post_share_message", "你已完成分享，快啲抽籤吧！");
-    } catch {
-      // ignore sessionStorage errors
-    }
-
-    try {
-      const res = await fetch("/api/share-reward", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-        cache: "no-store",
-      });
-      const data = await res.json();
-      if (typeof data?.remainingFreeCount === "number") {
-        try {
-          localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
-        } catch {
-          // ignore localStorage errors
-        }
-      }
-      if (data?.rewarded === false) {
-        setShareToast("今日已領取分享獎勵");
-      }
-    } catch {
-      // continue to redirect; reading page refetches count
-    }
-
-    await new Promise((r) => setTimeout(r, 1000));
-    router.push("/reading?shared=1");
-  }, [router, shareTriggered]);
+  const notifyShared = useCallback(() => {
+    setShareToast("已開啟分享");
+    setTimeout(() => setShareToast(""), 2200);
+  }, []);
 
   const drawShareImage = useCallback(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1920;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return "";
-
-    const bg = ctx.createLinearGradient(0, 0, 1080, 1920);
-    bg.addColorStop(0, "#0b0616");
-    bg.addColorStop(0.5, "#1b0b2f");
-    bg.addColorStop(1, "#07040f");
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, 1080, 1920);
-
-    ctx.fillStyle = "#f8d28c";
-    ctx.font = "bold 52px serif";
-    ctx.textAlign = "center";
-    const questionText = (result?.question ?? "我的塔羅問題").slice(0, 44);
-    ctx.fillText(`問題：${questionText}`, 540, 180);
-
-    ctx.fillStyle = "rgba(245, 213, 160, 0.8)";
-    ctx.font = "bold 62px serif";
-    ctx.fillText("ArcanaPath 塔羅結果", 540, 280);
-
-    const cardY = 500;
-    const cardW = 250;
-    const cardH = 380;
-    const cardX = [120, 415, 710];
-    const cardPos = ["過去", "現在", "未來"];
-    cardX.forEach((x, idx) => {
-      const card = shareCards[idx];
-      ctx.fillStyle = "rgba(35, 18, 60, 0.95)";
-      ctx.fillRect(x, cardY, cardW, cardH);
-      ctx.strokeStyle = "rgba(248, 210, 140, 0.7)";
-      ctx.lineWidth = 4;
-      ctx.strokeRect(x, cardY, cardW, cardH);
-
-      ctx.fillStyle = "rgba(248, 210, 140, 0.95)";
-      ctx.font = "bold 34px serif";
-      ctx.fillText(cardPos[idx], x + cardW / 2, cardY - 20);
-
-      ctx.fillStyle = "rgba(248, 210, 140, 0.75)";
-      ctx.font = "56px serif";
-      ctx.fillText("✦", x + cardW / 2, cardY + cardH / 2 + 18);
-
-      ctx.fillStyle = "#f8d28c";
-      ctx.font = "28px serif";
-      const cardName = card?.card?.name_zh ?? "神秘牌";
-      const orientation = card?.reversed ? "逆位" : "正位";
-      ctx.fillText(cardName.slice(0, 8), x + cardW / 2, cardY + cardH + 42);
-      ctx.fillStyle = "rgba(248, 210, 140, 0.75)";
-      ctx.font = "24px serif";
-      ctx.fillText(orientation, x + cardW / 2, cardY + cardH + 78);
-    });
-
-    ctx.fillStyle = "#e5c994";
-    ctx.font = "42px serif";
-    ctx.fillText(shareSummary || "你正在進入人生轉折點", 540, 1210);
-
-    const domain = shareUrl.replace(/^https?:\/\//, "").replace(/\/r\/.+$/, "") || "ArcanaPath";
-    ctx.fillStyle = "rgba(245, 210, 150, 0.9)";
-    ctx.font = "36px serif";
-    ctx.fillText(domain, 540, 1760);
-
-    return canvas.toDataURL("image/png");
-  }, [result, shareCards, shareSummary, shareUrl]);
+    const payload = buildShareImagePayloadFromReading(result, brandDomain);
+    return renderShareImageToDataUrl(payload);
+  }, [result, brandDomain]);
 
   const handleShare = useCallback(async () => {
     if (typeof navigator !== "undefined" && navigator.share) {
       navigator
         .share({
-          title: "AI塔羅占卜",
-          text: "我試咗個AI塔羅，結果有啲恐怖…",
+          title: "ArcanaPath 塔羅",
+          text: shareCopyRich,
           url: shareUrl || undefined,
         })
-        .catch(() => {
-          // Ignore cancel; click already counts as share action in this UX.
-        });
-      handleShareCompleted();
+        .catch(() => {});
+      notifyShared();
       return;
     }
     window.open(platformUrls.x, "_blank", "noopener,noreferrer");
-    handleShareCompleted();
-  }, [handleShareCompleted, platformUrls.x, shareUrl]);
+    notifyShared();
+  }, [notifyShared, platformUrls.x, shareCopyRich, shareUrl]);
 
   const handlePlatformShare = useCallback(
     (url: string) => {
       window.open(url, "_blank", "noopener,noreferrer");
-      handleShareCompleted();
+      notifyShared();
     },
-    [handleShareCompleted]
+    [notifyShared]
   );
 
   const handleDownloadImage = useCallback(() => {
@@ -210,36 +108,39 @@ export default function ResultClientPage({
     a.href = dataUrl;
     a.download = "arcanapath-result-share.png";
     a.click();
-    handleShareCompleted();
-  }, [drawShareImage, handleShareCompleted]);
+    setShareToast("圖片已下載");
+    setTimeout(() => setShareToast(""), 2200);
+  }, [drawShareImage]);
 
   const handleCopyText = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(shareCopyText);
-      handleShareCompleted();
+      await navigator.clipboard.writeText(shareCopyRich);
+      setShareToast("文案已複製");
+      setTimeout(() => setShareToast(""), 2200);
     } catch {
       setShareToast("複製失敗，請手動複製");
       setTimeout(() => setShareToast(""), 1600);
     }
-  }, [handleShareCompleted]);
+  }, [shareCopyRich]);
 
   const renderShareSection = useCallback(
     (title: string) => (
       <div className="mt-8 rounded-xl border border-amber-800/30 bg-amber-950/20 p-5 space-y-4">
         <div className="space-y-1">
           <p className="text-amber-200 font-serif text-lg font-semibold">{title}</p>
-          <p className="text-amber-500/70 text-xs font-serif">
-            分享此結果即可獲得 +3 次占卜（每日一次）
+          <p className="text-amber-500/70 text-xs font-serif leading-relaxed">
+            公開連結：<span className="text-amber-400/80 break-all">{shareUrl}</span>
+            <br />
+            純分享、不送占卜次數；精緻 9:16 圖片由你本次牌面與 AI 解讀生成。
           </p>
         </div>
 
         <button
           type="button"
           onClick={handleShare}
-          disabled={shareTriggered}
-          className="w-full bg-amber-700 hover:bg-amber-600 text-white font-serif font-semibold py-3 rounded-xl transition-colors disabled:opacity-60"
+          className="w-full bg-amber-700 hover:bg-amber-600 text-white font-serif font-semibold py-3 rounded-xl transition-colors"
         >
-          {shareTriggered ? "已分享" : "分享結果"}
+          分享結果
         </button>
 
         <div className="grid grid-cols-5 gap-2">
@@ -312,7 +213,6 @@ export default function ResultClientPage({
       platformUrls.x,
       canWebShare,
       showShareTools,
-      shareTriggered,
     ]
   );
 

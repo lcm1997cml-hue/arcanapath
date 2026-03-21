@@ -22,7 +22,8 @@ create table if not exists public.leads (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
   usage_count integer not null default 0,
-  free_limit integer not null default 3,
+  free_limit integer not null default 0,
+  last_email_bonus_date date,
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now()
 );
@@ -40,6 +41,12 @@ create trigger trg_set_leads_updated_at
 before update on public.leads
 for each row
 execute function public.set_leads_updated_at();
+`;
+
+/** Add email bonus tracking to existing databases. */
+export const LEADS_LAST_EMAIL_BONUS_SQL = `
+alter table public.leads
+  add column if not exists last_email_bonus_date date;
 `;
 
 export const VISITOR_USAGE_TABLE_SQL = `

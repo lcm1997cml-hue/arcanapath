@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { updateReadingPaid } from "@/lib/store";
+import { addVisitorFreeCredits, updateReadingPaid } from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -35,8 +35,21 @@ export async function POST(req: NextRequest) {
     }
 
     const session = event.data.object as Stripe.Checkout.Session;
-    const readingId = session.metadata?.readingId;
-    const plan = session.metadata?.plan;
+    const meta = session.metadata ?? {};
+
+    if (meta.checkoutKind === "reading_credits") {
+      const visitorId = typeof meta.visitorId === "string" ? meta.visitorId.trim() : "";
+      if (!visitorId) {
+        console.error("[stripe webhook] reading credits failed", { reason: "missing visitorId" });
+        return NextResponse.json({ ok: false, error: "missing visitorId" }, { status: 400 });
+      }
+      await addVisitorFreeCredits(visitorId, 3);
+      console.log("[stripe webhook] reading credits +3 success", { visitorId: visitorId.slice(0, 6) + "…" });
+      return NextResponse.json({ ok: true });
+    }
+
+    const readingId = meta.readingId;
+    const plan = meta.plan;
 
     if (!readingId) {
       console.error("[stripe webhook] update failed", { reason: "missing readingId" });
@@ -47,8 +60,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "invalid plan in metadata" }, { status: 400 });
     }
 
-    await updateReadingPaid(readingId, plan);
-    console.log("[stripe webhook] update success");
+    await updateReadingPaid(readingId, plan as "19" | "39" | "88");
+    console.log("[stripe webhook] premium update success");
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("[stripe webhook] update failed", error);
