@@ -2,7 +2,7 @@
  * 9:16 share image — dark mystic gradient, framed cards with real RWS faces, reading text.
  */
 
-import { getCardImagePath } from "@/lib/tarot/utils";
+import { getCardById, getCardImagePath } from "@/lib/tarot/utils";
 
 export type ShareImageCardSlot = {
   position: string;
@@ -69,13 +69,26 @@ function drawRoundedFrame(
   ctx.stroke();
 }
 
-function loadCardImage(src: string): Promise<HTMLImageElement | null> {
+function absolutizeAssetUrl(relativeOrAbsolute: string): string {
+  const s = relativeOrAbsolute.trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  const path = s.startsWith("/") ? s : `/${s}`;
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return `${window.location.origin}${path}`;
+  }
+  return path;
+}
+
+function loadCardImage(relativePath: string): Promise<HTMLImageElement | null> {
+  const url = absolutizeAssetUrl(relativePath);
+  if (!url) return Promise.resolve(null);
   return new Promise((resolve) => {
     const im = new Image();
     im.decoding = "async";
     im.onload = () => resolve(im);
     im.onerror = () => resolve(null);
-    im.src = src;
+    im.src = url;
   });
 }
 
@@ -130,10 +143,7 @@ function drawCardFace(
  * Full-quality share PNG with real card art (async — loads /cards/rws1909/*).
  */
 export async function renderShareImageToDataUrlAsync(payload: ShareImagePayload): Promise<string> {
-  const paths = payload.cards.map((c) => {
-    const p = getCardImagePath(c.imageFile);
-    return p ? p : "";
-  });
+  const paths = payload.cards.map((c) => getCardImagePath(c.imageFile));
   const images = await Promise.all(paths.map((p) => (p ? loadCardImage(p) : Promise.resolve(null))));
 
   const canvas = document.createElement("canvas");
@@ -230,9 +240,11 @@ export async function renderShareImageToDataUrlAsync(payload: ShareImagePayload)
       ny += 28;
     });
 
-    ctx.fillStyle = "rgba(252, 211, 77, 0.7)";
-    ctx.font = "20px ui-serif, Georgia, serif";
-    ctx.fillText(c.reversed ? "逆位" : "正位", x + cardW / 2, cardY + cardSlotH - 22);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "rgba(253, 230, 138, 0.98)";
+    ctx.font = "bold 22px ui-serif, Georgia, serif";
+    ctx.fillText(c.reversed ? "逆位" : "正位", x + cardW / 2, cardY + cardSlotH - 20);
   });
 
   y = cardY + cardSlotH + 44;
@@ -278,15 +290,53 @@ function firstSentence(text: string): string {
   return cut.slice(0, 120);
 }
 
+/** Resolve card face file + labels from full DrawnCard or slim { cardId } rows in JSONB. */
+function slotFromReadingCardItem(
+  item: unknown,
+  index: number
+): { position: string; name_zh: string; reversed: boolean; imageFile: string } {
+  const positions = ["過去", "現在", "未來"];
+  const row = item as Record<string, unknown>;
+  const position =
+    (typeof row.position === "string" && row.position) || positions[index] || `第${index + 1}張`;
+  const reversed = !!row.reversed;
+
+  const nested = row.card;
+  let cardId: number | undefined;
+  let nameFromNested: string | undefined;
+  let imageFromNested: string | undefined;
+
+  if (nested && typeof nested === "object" && nested !== null && !Array.isArray(nested)) {
+    const c = nested as Record<string, unknown>;
+    if (typeof c.id === "number" && Number.isFinite(c.id)) cardId = c.id;
+    else if (typeof c.id === "string" && c.id.trim() !== "") {
+      const n = Number(c.id);
+      if (Number.isFinite(n)) cardId = n;
+    }
+    if (typeof c.name_zh === "string") nameFromNested = c.name_zh;
+    if (typeof c.image === "string") imageFromNested = c.image;
+  }
+
+  if (cardId == null) {
+    if (typeof row.cardId === "number" && Number.isFinite(row.cardId)) cardId = row.cardId;
+    else if (typeof row.cardId === "string" && row.cardId.trim() !== "") {
+      const n = Number(row.cardId);
+      if (Number.isFinite(n)) cardId = n;
+    }
+  }
+
+  const fromDeck = cardId != null ? getCardById(cardId) : undefined;
+  const name_zh = nameFromNested || fromDeck?.name_zh || "—";
+  const imageFile = (imageFromNested || fromDeck?.image || "").trim();
+
+  return { position, name_zh, reversed, imageFile };
+}
+
 /** Build payload from a ReadingResult-like object (client or API JSON). */
 export function buildShareImagePayloadFromReading(
   result: {
     question: string;
-    cards?: Array<{
-      card?: { name_zh?: string; image?: string };
-      reversed?: boolean;
-      position?: string;
-    }>;
+    cards?: unknown[];
     freeReading?: {
       headline?: string;
       mainAxis?: string;
@@ -297,12 +347,15 @@ export function buildShareImagePayloadFromReading(
 ): ShareImagePayload {
   const cardsRaw = Array.isArray(result.cards) ? result.cards.slice(0, 3) : [];
   const positions = ["過去", "現在", "未來"];
-  const cards: ShareImageCardSlot[] = cardsRaw.map((item, i) => ({
-    position: (item.position as string) || positions[i] || `第${i + 1}張`,
-    name_zh: item.card?.name_zh ?? "—",
-    reversed: !!item.reversed,
-    imageFile: item.card?.image ?? "",
-  }));
+  const cards: ShareImageCardSlot[] = cardsRaw.map((item, i) => {
+    const s = slotFromReadingCardItem(item, i);
+    return {
+      position: s.position,
+      name_zh: s.name_zh,
+      reversed: s.reversed,
+      imageFile: s.imageFile,
+    };
+  });
 
   const fr = result.freeReading ?? {};
   const headline = (fr.headline ?? "").replace(/\s+/g, " ").trim();

@@ -91,6 +91,17 @@ create unique index if not exists visitor_share_bonus_visitor_id_bonus_date_key
   on public.visitor_share_bonus (visitor_id, bonus_date);
 `;
 
+/** Daily cap: one email bonus per calendar day (UTC date string). */
+export const LEAD_EMAIL_BONUS_TABLE_SQL = `
+create table if not exists public.lead_email_bonus (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,
+  bonus_date date not null,
+  created_at timestamptz not null default now(),
+  unique (email, bonus_date)
+);
+`;
+
 export function getSupabaseAdmin(): SupabaseClient {
   if (supabaseAdmin) return supabaseAdmin;
 
