@@ -347,7 +347,8 @@ function isPgUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * Email +3：`lead_email_bonus` 每日一次；額度寫入 `leads.free_limit`，並同步 visitor 以便當前裝置顯示。
+ * Email +3：額度與 email 主資料只在 `leads`；`lead_email_bonus` 僅記錄「當日是否已領」。
+ * 併發時若 insert 撞 unique，會把剛加的 `free_limit` 減回。
  */
 export async function claimEmailBonusForVisitor(
   visitorId: string,
@@ -375,7 +376,7 @@ export async function claimEmailBonusForVisitor(
     .maybeSingle();
   if (checkErr) throw checkErr;
   if (alreadyRow) {
-    console.log("[claimEmailBonus] already claimed today (select)");
+    console.log("[claimEmailBonus] already claimed today (lead_email_bonus exists)");
     const remainingFreeCount = await getVisitorRemainingFree(normalizedVisitorId);
     return {
       awarded: false,
@@ -385,25 +386,35 @@ export async function claimEmailBonusForVisitor(
   }
 
   const existingLead = await getLeadByEmail(normalizedEmail);
-  const leadForLog = existingLead ?? (await getOrCreateLeadByEmail(normalizedEmail));
+  const lead = existingLead ?? (await getOrCreateLeadByEmail(normalizedEmail));
   console.log(
     "[claimEmailBonus]",
     existingLead ? "lead found" : "lead created",
-    leadForLog.id,
-    leadForLog.email,
+    lead.id,
+    lead.email,
     "free_limit before claim:",
-    leadForLog.free_limit
+    lead.free_limit
   );
 
-  /* 先 insert 再 +3：靠 unique(email, bonus_date) 避免併發重複加次。 */
+  const freeLimitBefore = Number(lead.free_limit ?? 0);
+  const freeLimitAfter = freeLimitBefore + 3;
+
+  const { error: leadUpErr } = await supabase
+    .from("leads")
+    .update({ free_limit: freeLimitAfter })
+    .eq("id", lead.id);
+  if (leadUpErr) throw leadUpErr;
+  console.log("[claimEmailBonus] leads.free_limit after +3:", freeLimitAfter);
+
   const { error: insertBonusError } = await supabase.from("lead_email_bonus").insert({
     email: normalizedEmail,
     bonus_date: today,
   });
 
   if (insertBonusError) {
+    await supabase.from("leads").update({ free_limit: freeLimitBefore }).eq("id", lead.id);
     if (isPgUniqueViolation(insertBonusError)) {
-      console.log("[claimEmailBonus] already claimed today (unique on insert)");
+      console.log("[claimEmailBonus] already claimed today (unique on insert, reverted free_limit)");
       const remainingFreeCount = await getVisitorRemainingFree(normalizedVisitorId);
       return {
         awarded: false,
@@ -415,15 +426,15 @@ export async function claimEmailBonusForVisitor(
   }
 
   try {
-    await addLeadFreeCredits(normalizedEmail, 3);
-    const after = await addVisitorFreeCredits(normalizedVisitorId, 3);
+    const afterVisitor = await addVisitorFreeCredits(normalizedVisitorId, 3);
     const remainingFreeCount = Math.max(
       0,
-      Number(after.free_limit ?? 0) - Number(after.usage_count ?? 0)
+      Number(afterVisitor.free_limit ?? 0) - Number(afterVisitor.usage_count ?? 0)
     );
     return { awarded: true, remainingFreeCount };
   } catch (err) {
     await supabase.from("lead_email_bonus").delete().eq("email", normalizedEmail).eq("bonus_date", today);
+    await supabase.from("leads").update({ free_limit: freeLimitBefore }).eq("id", lead.id);
     throw err;
   }
 }
