@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     if (e instanceof Error && e.message === "invalid email") {
       return NextResponse.json({ ok: false, error: "請輸入有效 email" }, { status: 400 });
     }
-    console.error("[/api/email-bonus]", e);
+    console.error("[/api/email-bonus] full error:", e);
     return NextResponse.json({ ok: false, error: "處理失敗，請稍後再試" }, { status: 500 });
   }
 }

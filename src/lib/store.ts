@@ -203,8 +203,6 @@ type LeadRow = {
   email: string;
   usage_count: number;
   free_limit: number;
-  created_at: string;
-  updated_at: string;
 };
 
 type VisitorUsageRow = {
@@ -229,7 +227,7 @@ export async function getLeadByEmail(email: string): Promise<LeadRow | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .select("id,email,usage_count,free_limit,created_at,updated_at")
+    .select("id,email,usage_count,free_limit")
     .eq("email", normalizedEmail)
     .maybeSingle();
   if (error) throw error;
@@ -245,7 +243,7 @@ export async function getOrCreateLeadByEmail(email: string): Promise<LeadRow> {
   const { data, error } = await supabase
     .from("leads")
     .insert({ email: normalizedEmail, usage_count: 0, free_limit: 0 })
-    .select("id,email,usage_count,free_limit,created_at,updated_at")
+    .select("id,email,usage_count,free_limit")
     .single();
   if (error) throw error;
   return data as LeadRow;
@@ -319,16 +317,20 @@ export async function getVisitorRemainingFree(visitorId: string): Promise<number
 
 export async function addLeadFreeCredits(email: string, credits: number): Promise<LeadRow> {
   const lead = await getOrCreateLeadByEmail(email);
-  const nextFreeLimit = Number(lead.free_limit ?? 3) + Math.max(0, credits);
+  const before = Number(lead.free_limit ?? 0);
+  const add = Math.max(0, credits);
+  const nextFreeLimit = before + add;
+  console.log("[addLeadFreeCredits] lead", lead.id, "free_limit before:", before, "add:", add);
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
     .update({ free_limit: nextFreeLimit })
     .eq("id", lead.id)
-    .select("id,email,usage_count,free_limit,created_at,updated_at")
+    .select("id,email,usage_count,free_limit")
     .single();
   if (error) throw error;
+  console.log("[addLeadFreeCredits] free_limit after:", nextFreeLimit);
   return data as LeadRow;
 }
 
@@ -345,8 +347,7 @@ function isPgUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * Email +3：每日一次由 `lead_email_bonus` 約束；額度只加在現有 `leads.free_limit`
- *（並同步 `visitor_usage.free_limit` 讓目前裝置上的剩餘次數立即更新）。
+ * Email +3：`lead_email_bonus` 每日一次；額度寫入 `leads.free_limit`，並同步 visitor 以便當前裝置顯示。
  */
 export async function claimEmailBonusForVisitor(
   visitorId: string,
@@ -364,6 +365,37 @@ export async function claimEmailBonusForVisitor(
   const today = new Date().toISOString().slice(0, 10);
   const supabase = getSupabaseAdmin();
 
+  console.log("[claimEmailBonus] email received:", normalizedEmail, "bonus_date:", today);
+
+  const { data: alreadyRow, error: checkErr } = await supabase
+    .from("lead_email_bonus")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .eq("bonus_date", today)
+    .maybeSingle();
+  if (checkErr) throw checkErr;
+  if (alreadyRow) {
+    console.log("[claimEmailBonus] already claimed today (select)");
+    const remainingFreeCount = await getVisitorRemainingFree(normalizedVisitorId);
+    return {
+      awarded: false,
+      remainingFreeCount,
+      message: "今日已領取 email 獎勵",
+    };
+  }
+
+  const existingLead = await getLeadByEmail(normalizedEmail);
+  const leadForLog = existingLead ?? (await getOrCreateLeadByEmail(normalizedEmail));
+  console.log(
+    "[claimEmailBonus]",
+    existingLead ? "lead found" : "lead created",
+    leadForLog.id,
+    leadForLog.email,
+    "free_limit before claim:",
+    leadForLog.free_limit
+  );
+
+  /* 先 insert 再 +3：靠 unique(email, bonus_date) 避免併發重複加次。 */
   const { error: insertBonusError } = await supabase.from("lead_email_bonus").insert({
     email: normalizedEmail,
     bonus_date: today,
@@ -371,6 +403,7 @@ export async function claimEmailBonusForVisitor(
 
   if (insertBonusError) {
     if (isPgUniqueViolation(insertBonusError)) {
+      console.log("[claimEmailBonus] already claimed today (unique on insert)");
       const remainingFreeCount = await getVisitorRemainingFree(normalizedVisitorId);
       return {
         awarded: false,
