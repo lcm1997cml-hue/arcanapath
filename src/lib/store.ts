@@ -341,127 +341,37 @@ export async function claimDailyShareBonus(
   visitorId: string,
   credits = 3
 ): Promise<{ awarded: boolean; remainingFree: number }> {
-  const normalizedVisitorId = visitorId.trim();
-  const today = new Date().toISOString().slice(0, 10);
-  const current = await getOrCreateVisitorUsage(normalizedVisitorId);
-  const supabase = getSupabaseAdmin();
-
-  const { error: bonusError } = await supabase
-    .from("visitor_share_bonus")
-    .insert({
-      visitor_id: normalizedVisitorId,
-      bonus_date: today,
-      credits: Math.max(0, credits),
-    });
-
-  if (bonusError) {
-    if ((bonusError as { code?: string }).code === "23505") {
-      const remainingFree = Math.max(
-        0,
-        Number(current.free_limit ?? 0) - Number(current.usage_count ?? 0)
-      );
-      return { awarded: false, remainingFree };
-    }
-    throw bonusError;
-  }
-
-  const updated = await addVisitorFreeCredits(normalizedVisitorId, credits);
-  const remainingFree = Math.max(
-    0,
-    Number(updated.free_limit ?? 0) - Number(updated.usage_count ?? 0)
-  );
-  return { awarded: true, remainingFree };
+  const r = await claimShareReward({ visitorId, credits });
+  return { awarded: r.rewarded, remainingFree: r.remainingFreeCount };
 }
 
 export async function claimShareReward(params: {
   visitorId: string;
-  email?: string;
   credits?: number;
 }): Promise<{ rewarded: boolean; remainingFreeCount: number }> {
   const credits = Math.max(0, params.credits ?? 3);
   const today = new Date().toISOString().slice(0, 10);
   const normalizedVisitorId = params.visitorId.trim();
-  const normalizedEmail = params.email ? normalizeLeadEmail(params.email) : null;
-  const rewardKey = normalizedEmail ? `lead:${normalizedEmail}` : `visitor:${normalizedVisitorId}`;
   const supabase = getSupabaseAdmin();
 
-  console.log("[share reward] visitor/lead identified", {
-    visitorId: normalizedVisitorId,
-    leadEmail: normalizedEmail,
-    rewardKey,
-    credits,
-    today,
-  });
-
   const { error: insertError } = await supabase.from("visitor_share_bonus").insert({
-    visitor_id: rewardKey,
+    visitor_id: normalizedVisitorId,
     bonus_date: today,
     credits,
   });
 
   if (insertError) {
     if ((insertError as { code?: string }).code === "23505") {
-      console.log("[share reward] already claimed today", { rewardKey, today });
-      const remainingFreeCount = normalizedEmail
-        ? await getLeadRemainingFree(normalizedEmail)
-        : await getVisitorRemainingFree(normalizedVisitorId);
-      console.log("[share reward] remainingFreeCount computed", {
-        rewardKey,
-        remainingFreeCount,
-      });
+      const remainingFreeCount = await getVisitorRemainingFree(normalizedVisitorId);
       return { rewarded: false, remainingFreeCount };
     }
     throw insertError;
   }
 
-  if (normalizedEmail) {
-    const before = await getOrCreateLeadByEmail(normalizedEmail);
-    console.log("[share reward] before update free_limit / usage_count", {
-      rewardKey,
-      free_limit: before.free_limit,
-      usage_count: before.usage_count,
-    });
-
-    const after = await addLeadFreeCredits(normalizedEmail, credits);
-    console.log("[share reward] after update free_limit / usage_count", {
-      rewardKey,
-      free_limit: after.free_limit,
-      usage_count: after.usage_count,
-    });
-
-    const remainingFreeCount = Math.max(
-      0,
-      Number(after.free_limit ?? 0) - Number(after.usage_count ?? 0)
-    );
-    console.log("[share reward] remainingFreeCount computed", {
-      rewardKey,
-      remainingFreeCount,
-    });
-    return { rewarded: true, remainingFreeCount };
-  }
-
-  const before = await getOrCreateVisitorUsage(normalizedVisitorId);
-  console.log("[share reward] before update free_limit / usage_count", {
-    rewardKey,
-    free_limit: before.free_limit,
-    usage_count: before.usage_count,
-  });
-
   const after = await addVisitorFreeCredits(normalizedVisitorId, credits);
-  console.log("[share reward] after update free_limit / usage_count", {
-    rewardKey,
-    free_limit: after.free_limit,
-    usage_count: after.usage_count,
-  });
-
   const remainingFreeCount = Math.max(
     0,
     Number(after.free_limit ?? 0) - Number(after.usage_count ?? 0)
   );
-  console.log("[share reward] remainingFreeCount computed", {
-    rewardKey,
-    remainingFreeCount,
-  });
-
   return { rewarded: true, remainingFreeCount };
 }

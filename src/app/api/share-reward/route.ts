@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import {
-  claimShareReward,
-  getVisitorRemainingFree,
-  isValidLeadEmail,
-  normalizeLeadEmail,
-} from "@/lib/store";
+import { claimShareReward, getVisitorRemainingFree } from "@/lib/store";
+
+export const dynamic = "force-dynamic";
 
 const VISITOR_COOKIE = "arcana_visitor_id";
 
@@ -34,15 +31,8 @@ export async function POST(req: NextRequest) {
     let visitorId = req.cookies.get(VISITOR_COOKIE)?.value ?? "";
     if (!visitorId) visitorId = nanoid(18);
 
-    const body = await req.json().catch(() => ({}));
-    const email =
-      typeof body?.email === "string" && isValidLeadEmail(body.email)
-        ? normalizeLeadEmail(body.email)
-        : undefined;
-
     const result = await claimShareReward({
       visitorId,
-      email,
       credits: 3,
     });
 

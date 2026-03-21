@@ -74,7 +74,7 @@ export default function ResultClientPage({
   );
   const canWebShare = typeof navigator !== "undefined" && "share" in navigator;
 
-  const handleShareCompleted = useCallback(() => {
+  const handleShareCompleted = useCallback(async () => {
     if (shareTriggered) return;
     setShareTriggered(true);
     setShareToast("🎉 已解鎖 +3 次占卜");
@@ -84,30 +84,31 @@ export default function ResultClientPage({
       // ignore sessionStorage errors
     }
 
-    void fetch("/api/share-reward", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ readingId: id }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (typeof data?.remainingFreeCount === "number") {
-          try {
-            localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
-          } catch {
-            // ignore localStorage errors
-          }
-        }
-        if (data?.awarded === false) {
-          setShareToast("今日已領取分享獎勵");
-        }
-      })
-      .catch(() => {
-        // Fire-and-forget; UX flow should still continue.
+    try {
+      const res = await fetch("/api/share-reward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        cache: "no-store",
       });
+      const data = await res.json();
+      if (typeof data?.remainingFreeCount === "number") {
+        try {
+          localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
+        } catch {
+          // ignore localStorage errors
+        }
+      }
+      if (data?.rewarded === false) {
+        setShareToast("今日已領取分享獎勵");
+      }
+    } catch {
+      // continue to redirect; reading page refetches count
+    }
 
-    setTimeout(() => router.push("/reading?shared=1"), 1200);
-  }, [id, router, shareTriggered]);
+    await new Promise((r) => setTimeout(r, 1000));
+    router.push("/reading?shared=1");
+  }, [router, shareTriggered]);
 
   const drawShareImage = useCallback(() => {
     const canvas = document.createElement("canvas");

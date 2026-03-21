@@ -78,6 +78,12 @@ create table if not exists public.visitor_share_bonus (
 );
 `;
 
+/** Run if an older DB created visitor_share_bonus without the unique constraint. */
+export const VISITOR_SHARE_BONUS_UNIQUE_INDEX_SQL = `
+create unique index if not exists visitor_share_bonus_visitor_id_bonus_date_key
+  on public.visitor_share_bonus (visitor_id, bonus_date);
+`;
+
 export function getSupabaseAdmin(): SupabaseClient {
   if (supabaseAdmin) return supabaseAdmin;
 

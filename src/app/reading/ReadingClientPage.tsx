@@ -213,18 +213,21 @@ export default function ReadingClientPage() {
   const [remainingFreeHint, setRemainingFreeHint] = useState<number | null>(null);
 
   useEffect(() => {
+    const skipStoredRemaining = searchParams.get("shared") === "1";
     try {
-      const savedRemaining = localStorage.getItem("arcana_remaining_free");
-      if (savedRemaining !== null) {
-        const parsed = Number(savedRemaining);
-        if (!Number.isNaN(parsed)) setRemainingFreeHint(parsed);
+      if (!skipStoredRemaining) {
+        const savedRemaining = localStorage.getItem("arcana_remaining_free");
+        if (savedRemaining !== null) {
+          const parsed = Number(savedRemaining);
+          if (!Number.isNaN(parsed)) setRemainingFreeHint(parsed);
+        }
       }
       const savedReadingId = localStorage.getItem("arcana_last_reading_id");
       if (savedReadingId) setLastReadingId(savedReadingId);
     } catch {
       // ignore localStorage errors
     }
-  }, []);
+  }, [searchParams]);
 
   const refreshRemainingFromServer = useCallback(async (retries = 0) => {
     try {
@@ -242,9 +245,8 @@ export default function ReadingClientPage() {
       // ignore refresh errors
     }
     if (retries > 0) {
-      setTimeout(() => {
-        void refreshRemainingFromServer(retries - 1);
-      }, 450);
+      await new Promise((r) => setTimeout(r, 450));
+      await refreshRemainingFromServer(retries - 1);
     }
   }, []);
 
@@ -270,7 +272,11 @@ export default function ReadingClientPage() {
       // ignore sessionStorage errors
     }
     setShareNavigating(false);
-    void refreshRemainingFromServer(3);
+    void (async () => {
+      await refreshRemainingFromServer(0);
+      await new Promise((r) => setTimeout(r, 400));
+      await refreshRemainingFromServer(0);
+    })();
     router.replace("/reading");
   }, [refreshRemainingFromServer, router, searchParams]);
 
@@ -460,7 +466,7 @@ export default function ReadingClientPage() {
     }
   }, [shareText]);
 
-  const completeShareFlow = useCallback(() => {
+  const completeShareFlow = useCallback(async () => {
     if (shareNavigating) return;
     setShareNavigating(true);
     setToast("🎉 已解鎖 +3 次占卜");
@@ -470,32 +476,30 @@ export default function ReadingClientPage() {
       // ignore sessionStorage errors
     }
 
-    void fetch("/api/share-reward", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ readingId: lastReadingId || undefined }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (typeof data?.remainingFreeCount === "number") {
-          setRemainingFreeHint(data.remainingFreeCount);
-          try {
-            localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
-          } catch {
-            // ignore localStorage errors
-          }
-        }
-        if (data?.awarded === false) setToast("今日已領取分享獎勵");
-        void refreshRemainingFromServer(2);
-      })
-      .catch(() => {
-        // fire-and-forget
+    try {
+      const res = await fetch("/api/share-reward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        cache: "no-store",
       });
+      const data = await res.json();
+      if (typeof data?.remainingFreeCount === "number") {
+        setRemainingFreeHint(data.remainingFreeCount);
+        try {
+          localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
+        } catch {
+          // ignore localStorage errors
+        }
+      }
+      if (data?.rewarded === false) setToast("今日已領取分享獎勵");
+    } catch {
+      // reading page will refetch remaining count
+    }
 
-    setTimeout(() => {
-      router.push("/reading?shared=1");
-    }, 1200);
-  }, [lastReadingId, router, shareNavigating]);
+    await new Promise((r) => setTimeout(r, 1000));
+    router.push("/reading?shared=1");
+  }, [router, shareNavigating]);
 
   const handleShareUnlock = useCallback(() => {
     const targetUrl = shareTargetUrl || websiteShareUrl;

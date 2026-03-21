@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { claimDailyShareBonus } from "@/lib/store";
+import { claimShareReward } from "@/lib/store";
 
 const VISITOR_COOKIE = "arcana_visitor_id";
 
@@ -9,7 +9,10 @@ export async function POST(req: NextRequest) {
     let visitorId = req.cookies.get(VISITOR_COOKIE)?.value ?? "";
     if (!visitorId) visitorId = nanoid(18);
 
-    const { awarded, remainingFree } = await claimDailyShareBonus(visitorId, 3);
+    const { rewarded: awarded, remainingFreeCount: remainingFree } = await claimShareReward({
+      visitorId,
+      credits: 3,
+    });
 
     const res = NextResponse.json({
       ok: true,
