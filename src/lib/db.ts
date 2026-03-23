@@ -49,6 +49,13 @@ alter table public.leads
   add column if not exists last_email_bonus_date date;
 `;
 
+export const LEADS_PLAN_COLUMNS_SQL = `
+alter table public.leads
+  add column if not exists plan_type text,
+  add column if not exists plan_credits integer not null default 0,
+  add column if not exists plan_expires_at timestamptz;
+`;
+
 export const VISITOR_USAGE_TABLE_SQL = `
 create table if not exists public.visitor_usage (
   id uuid primary key default gen_random_uuid(),
@@ -72,6 +79,13 @@ create trigger trg_set_visitor_usage_updated_at
 before update on public.visitor_usage
 for each row
 execute function public.set_visitor_usage_updated_at();
+`;
+
+export const VISITOR_USAGE_PLAN_COLUMNS_SQL = `
+alter table public.visitor_usage
+  add column if not exists plan_type text,
+  add column if not exists plan_credits integer not null default 0,
+  add column if not exists plan_expires_at timestamptz;
 `;
 
 export const VISITOR_SHARE_BONUS_TABLE_SQL = `

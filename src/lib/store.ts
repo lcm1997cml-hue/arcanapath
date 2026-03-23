@@ -203,6 +203,9 @@ type LeadRow = {
   email: string;
   usage_count: number;
   free_limit: number;
+  plan_type?: string | null;
+  plan_credits?: number | null;
+  plan_expires_at?: string | null;
 };
 
 type VisitorUsageRow = {
@@ -212,6 +215,9 @@ type VisitorUsageRow = {
   free_limit: number;
   created_at: string;
   updated_at: string;
+  plan_type?: string | null;
+  plan_credits?: number | null;
+  plan_expires_at?: string | null;
 };
 
 export function normalizeLeadEmail(email: string): string {
@@ -227,7 +233,7 @@ export async function getLeadByEmail(email: string): Promise<LeadRow | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .select("id,email,usage_count,free_limit")
+    .select("id,email,usage_count,free_limit,plan_type,plan_credits,plan_expires_at")
     .eq("email", normalizedEmail)
     .maybeSingle();
   if (error) throw error;
@@ -242,8 +248,8 @@ export async function getOrCreateLeadByEmail(email: string): Promise<LeadRow> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .insert({ email: normalizedEmail, usage_count: 0, free_limit: 0 })
-    .select("id,email,usage_count,free_limit")
+    .insert({ email: normalizedEmail, usage_count: 0, free_limit: 0, plan_credits: 0 })
+    .select("id,email,usage_count,free_limit,plan_type,plan_credits,plan_expires_at")
     .single();
   if (error) throw error;
   return data as LeadRow;
@@ -267,7 +273,7 @@ export async function getOrCreateVisitorUsage(visitorId: string): Promise<Visito
   const supabase = getSupabaseAdmin();
   const { data: existing, error: queryError } = await supabase
     .from("visitor_usage")
-    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at")
+    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at,plan_type,plan_credits,plan_expires_at")
     .eq("visitor_id", normalizedVisitorId)
     .maybeSingle();
   if (queryError) throw queryError;
@@ -275,8 +281,8 @@ export async function getOrCreateVisitorUsage(visitorId: string): Promise<Visito
 
   const { data, error } = await supabase
     .from("visitor_usage")
-    .insert({ visitor_id: normalizedVisitorId, usage_count: 0, free_limit: 1 })
-    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at")
+    .insert({ visitor_id: normalizedVisitorId, usage_count: 0, free_limit: 1, plan_credits: 0 })
+    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at,plan_type,plan_credits,plan_expires_at")
     .single();
   if (error) throw error;
   return data as VisitorUsageRow;
@@ -304,7 +310,7 @@ export async function addVisitorFreeCredits(visitorId: string, credits: number):
     .from("visitor_usage")
     .update({ free_limit: nextFreeLimit })
     .eq("id", row.id)
-    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at")
+    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at,plan_type,plan_credits,plan_expires_at")
     .single();
   if (error) throw error;
   return data as VisitorUsageRow;
@@ -327,11 +333,181 @@ export async function addLeadFreeCredits(email: string, credits: number): Promis
     .from("leads")
     .update({ free_limit: nextFreeLimit })
     .eq("id", lead.id)
-    .select("id,email,usage_count,free_limit")
+    .select("id,email,usage_count,free_limit,plan_type,plan_credits,plan_expires_at")
     .single();
   if (error) throw error;
   console.log("[addLeadFreeCredits] free_limit after:", nextFreeLimit);
   return data as LeadRow;
+}
+
+export type LeadPlanAccess = {
+  hasAccess: boolean;
+  mode: "none" | "unlimited" | "credits";
+  creditsLeft: number;
+  isExpired: boolean;
+  expiresAt: string | null;
+};
+
+function isPlanExpired(planExpiresAt?: string | null, now = new Date()): boolean {
+  if (!planExpiresAt) return false;
+  const exp = new Date(planExpiresAt);
+  if (Number.isNaN(exp.getTime())) return true;
+  return exp.getTime() <= now.getTime();
+}
+
+export function evaluateLeadPlanAccess(lead: LeadRow, now = new Date()): LeadPlanAccess {
+  const isExpired = isPlanExpired(lead.plan_expires_at, now);
+  if (isExpired) {
+    return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: true, expiresAt: lead.plan_expires_at ?? null };
+  }
+
+  if (lead.plan_type === "unlimited") {
+    return {
+      hasAccess: true,
+      mode: "unlimited",
+      creditsLeft: Number(lead.plan_credits ?? 0),
+      isExpired: false,
+      expiresAt: lead.plan_expires_at ?? null,
+    };
+  }
+
+  const credits = Math.max(0, Number(lead.plan_credits ?? 0));
+  if (credits > 0) {
+    return {
+      hasAccess: true,
+      mode: "credits",
+      creditsLeft: credits,
+      isExpired: false,
+      expiresAt: lead.plan_expires_at ?? null,
+    };
+  }
+
+  return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: false, expiresAt: lead.plan_expires_at ?? null };
+}
+
+type PlanLike = {
+  plan_type?: string | null;
+  plan_credits?: number | null;
+  plan_expires_at?: string | null;
+};
+
+function evaluatePlanLikeAccess(plan: PlanLike, now = new Date()): LeadPlanAccess {
+  const isExpired = isPlanExpired(plan.plan_expires_at, now);
+  if (isExpired) {
+    return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: true, expiresAt: plan.plan_expires_at ?? null };
+  }
+  if (plan.plan_type === "unlimited") {
+    return { hasAccess: true, mode: "unlimited", creditsLeft: Number(plan.plan_credits ?? 0), isExpired: false, expiresAt: plan.plan_expires_at ?? null };
+  }
+  const credits = Math.max(0, Number(plan.plan_credits ?? 0));
+  if (credits > 0) {
+    return { hasAccess: true, mode: "credits", creditsLeft: credits, isExpired: false, expiresAt: plan.plan_expires_at ?? null };
+  }
+  return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: false, expiresAt: plan.plan_expires_at ?? null };
+}
+
+export async function hasPremiumAccess(
+  visitorId: string,
+  email?: string
+): Promise<{
+  hasAccess: boolean;
+  mode: "none" | "unlimited" | "credits";
+  creditsLeft: number;
+  source: "lead" | "visitor" | "none";
+  expiresAt: string | null;
+}> {
+  const normalizedVisitorId = visitorId.trim();
+  const normalizedEmail = email ? normalizeLeadEmail(email) : "";
+
+  if (normalizedEmail) {
+    const lead = await getLeadByEmail(normalizedEmail);
+    if (lead) {
+      const a = evaluateLeadPlanAccess(lead);
+      if (a.hasAccess) {
+        return {
+          hasAccess: true,
+          mode: a.mode,
+          creditsLeft: a.creditsLeft,
+          source: "lead",
+          expiresAt: a.expiresAt,
+        };
+      }
+    }
+  }
+
+  const visitor = await getOrCreateVisitorUsage(normalizedVisitorId);
+  const v = evaluatePlanLikeAccess(visitor);
+  if (v.hasAccess) {
+    return {
+      hasAccess: true,
+      mode: v.mode,
+      creditsLeft: v.creditsLeft,
+      source: "visitor",
+      expiresAt: v.expiresAt,
+    };
+  }
+
+  return { hasAccess: false, mode: "none", creditsLeft: 0, source: "none", expiresAt: null };
+}
+
+export async function consumePremiumAccessForView(
+  visitorId: string,
+  email?: string
+): Promise<{
+  ok: boolean;
+  mode: "none" | "unlimited" | "credits";
+  creditsLeft: number;
+  source: "lead" | "visitor" | "none";
+  reason?: "expired" | "no_access";
+}> {
+  const normalizedVisitorId = visitorId.trim();
+  const normalizedEmail = email ? normalizeLeadEmail(email) : "";
+  const access = await hasPremiumAccess(normalizedVisitorId, normalizedEmail || undefined);
+  if (!access.hasAccess) return { ok: false, mode: "none", creditsLeft: 0, source: "none", reason: "no_access" };
+  if (access.mode === "unlimited") {
+    return { ok: true, mode: "unlimited", creditsLeft: access.creditsLeft, source: access.source };
+  }
+
+  // mode === credits: consume one credit per premium view.
+  const next = Math.max(0, access.creditsLeft - 1);
+  const supabase = getSupabaseAdmin();
+  if (access.source === "lead" && normalizedEmail) {
+    const lead = await getLeadByEmail(normalizedEmail);
+    if (!lead) return { ok: false, mode: "none", creditsLeft: 0, source: "none", reason: "no_access" };
+    const { error } = await supabase.from("leads").update({ plan_credits: next }).eq("id", lead.id);
+    if (error) throw error;
+    await supabase.from("visitor_usage").update({ plan_credits: next }).eq("visitor_id", normalizedVisitorId);
+    return { ok: true, mode: "credits", creditsLeft: next, source: "lead" };
+  }
+
+  const visitor = await getOrCreateVisitorUsage(normalizedVisitorId);
+  const { error } = await supabase.from("visitor_usage").update({ plan_credits: next }).eq("id", visitor.id);
+  if (error) throw error;
+  return { ok: true, mode: "credits", creditsLeft: next, source: "visitor" };
+}
+
+export async function consumeLeadPlanUnlock(email: string): Promise<{
+  ok: boolean;
+  mode: "none" | "unlimited" | "credits";
+  creditsLeft: number;
+  reason?: string;
+}> {
+  const lead = await getLeadByEmail(email);
+  if (!lead) return { ok: false, mode: "none", creditsLeft: 0, reason: "lead_not_found" };
+  const access = evaluateLeadPlanAccess(lead);
+  if (!access.hasAccess) {
+    return { ok: false, mode: "none", creditsLeft: 0, reason: access.isExpired ? "plan_expired" : "no_plan_access" };
+  }
+
+  if (access.mode === "unlimited") {
+    return { ok: true, mode: "unlimited", creditsLeft: access.creditsLeft };
+  }
+
+  const nextCredits = Math.max(0, access.creditsLeft - 1);
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from("leads").update({ plan_credits: nextCredits }).eq("id", lead.id);
+  if (error) throw error;
+  return { ok: true, mode: "credits", creditsLeft: nextCredits };
 }
 
 export async function getLeadRemainingFree(email: string): Promise<number> {
@@ -450,6 +626,12 @@ export async function restoreAccessByEmailForVisitor(
 ): Promise<{
   restored: boolean;
   remainingFreeCount: number;
+  planAccess?: {
+    hasAccess: boolean;
+    mode: "none" | "unlimited" | "credits";
+    creditsLeft: number;
+    expiresAt: string | null;
+  };
   message?: string;
 }> {
   if (!isValidLeadEmail(email)) {
@@ -462,10 +644,21 @@ export async function restoreAccessByEmailForVisitor(
   if (!lead) {
     return { restored: false, remainingFreeCount: await getVisitorRemainingFree(normalizedVisitorId), message: "找不到此 email 的權限資料" };
   }
+  const planAccess = evaluateLeadPlanAccess(lead);
 
   const leadRemaining = Math.max(0, Number(lead.free_limit ?? 0) - Number(lead.usage_count ?? 0));
-  if (leadRemaining <= 0) {
-    return { restored: false, remainingFreeCount: await getVisitorRemainingFree(normalizedVisitorId), message: "此 email 目前沒有可恢復的可用次數" };
+  if (leadRemaining <= 0 && !planAccess.hasAccess) {
+    return {
+      restored: false,
+      remainingFreeCount: await getVisitorRemainingFree(normalizedVisitorId),
+      planAccess: {
+        hasAccess: false,
+        mode: "none",
+        creditsLeft: 0,
+        expiresAt: planAccess.expiresAt,
+      },
+      message: planAccess.isExpired ? "此 email 的方案已過期" : "此 email 目前沒有可恢復的可用次數",
+    };
   }
 
   const visitor = await getOrCreateVisitorUsage(normalizedVisitorId);
@@ -474,16 +667,31 @@ export async function restoreAccessByEmailForVisitor(
   const targetVisitorFreeLimit = visitorUsage + Math.max(visitorCurrentRemaining, leadRemaining);
 
   const supabase = getSupabaseAdmin();
-  if (targetVisitorFreeLimit !== Number(visitor.free_limit ?? 0)) {
-    const { error } = await supabase
-      .from("visitor_usage")
-      .update({ free_limit: targetVisitorFreeLimit })
-      .eq("id", visitor.id);
-    if (error) throw error;
-  }
+  const visitorUpdatePayload: {
+    free_limit: number;
+    plan_type: string | null;
+    plan_credits: number;
+    plan_expires_at: string | null;
+  } = {
+    free_limit: targetVisitorFreeLimit,
+    plan_type: planAccess.mode === "unlimited" ? "unlimited" : null,
+    plan_credits: planAccess.mode === "credits" ? planAccess.creditsLeft : 0,
+    plan_expires_at: planAccess.expiresAt,
+  };
+  const { error } = await supabase
+    .from("visitor_usage")
+    .update(visitorUpdatePayload)
+    .eq("id", visitor.id);
+  if (error) throw error;
 
   return {
     restored: true,
     remainingFreeCount: Math.max(visitorCurrentRemaining, leadRemaining),
+    planAccess: {
+      hasAccess: planAccess.hasAccess,
+      mode: planAccess.mode,
+      creditsLeft: planAccess.mode === "credits" ? planAccess.creditsLeft : 0,
+      expiresAt: planAccess.expiresAt,
+    },
   };
 }

@@ -10,7 +10,8 @@
 
 import React from "react";
 import { notFound } from "next/navigation";
-import { getReading } from "@/lib/store";
+import { cookies } from "next/headers";
+import { consumePremiumAccessForView, getReading } from "@/lib/store";
 import { getCurrentUser, getRolePolicy } from "@/lib/auth";
 import { stripPaidContent } from "@/lib/reading/normalize";
 import { TOPIC_LABELS } from "@/types/reading";
@@ -53,9 +54,19 @@ export default async function ResultPage({ params, searchParams }: Props) {
   const isPaidQuery = !!normalizedQueryPlan && isPaidFlag;
 
   const fullByPolicy = !policy.showPaywall;
-  const unlockDeep = fullByPolicy || (isPaidInDb && (paidPlan === "19" || paidPlan === "39" || paidPlan === "88"));
-  const unlockTimeline = fullByPolicy || (isPaidInDb && (paidPlan === "39" || paidPlan === "88"));
-  const unlockQa = fullByPolicy || (isPaidInDb && paidPlan === "88");
+  let accountPremium = false;
+  if (!fullByPolicy && !isPaidInDb) {
+    const cookieStore = await cookies();
+    const visitorId = cookieStore.get("arcana_visitor_id")?.value?.trim() ?? "";
+    const restoredEmail = cookieStore.get("arcana_lead_email")?.value?.trim() ?? "";
+    if (visitorId) {
+      const consume = await consumePremiumAccessForView(visitorId, restoredEmail || undefined);
+      accountPremium = consume.ok;
+    }
+  }
+  const unlockDeep = fullByPolicy || accountPremium || (isPaidInDb && (paidPlan === "19" || paidPlan === "39" || paidPlan === "88"));
+  const unlockTimeline = fullByPolicy || accountPremium || (isPaidInDb && (paidPlan === "39" || paidPlan === "88"));
+  const unlockQa = fullByPolicy || accountPremium || (isPaidInDb && paidPlan === "88");
   const isUnlocked = fullByPolicy || (unlockDeep && unlockTimeline && unlockQa);
 
   const result = fullByPolicy

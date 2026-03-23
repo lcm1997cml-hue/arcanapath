@@ -1,7 +1,7 @@
 // src/app/api/result/[id]/route.ts
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { getReading } from "@/lib/store";
+import { consumePremiumAccessForView, getReading } from "@/lib/store";
 import { getCurrentUser } from "@/lib/auth";
 import { getUsageLimits } from "@/lib/auth";
 
@@ -10,6 +10,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const VISITOR_COOKIE = "arcana_visitor_id";
+    const LEAD_EMAIL_COOKIE = "arcana_lead_email";
     const { id } = await params;
     const result = await getReading(id);
 
@@ -28,9 +30,19 @@ export async function GET(
       return NextResponse.json({ ok: true, data: result });
     }
 
-    const unlockDeep = isPaidInDb && (paidPlan === "19" || paidPlan === "39" || paidPlan === "88");
-    const unlockTimeline = isPaidInDb && (paidPlan === "39" || paidPlan === "88");
-    const unlockQa = isPaidInDb && paidPlan === "88";
+    let accountPremium = false;
+    if (!isPaidInDb) {
+      const visitorId = req.cookies.get(VISITOR_COOKIE)?.value?.trim() ?? "";
+      const restoredEmail = req.cookies.get(LEAD_EMAIL_COOKIE)?.value?.trim() ?? "";
+      if (visitorId) {
+        const consume = await consumePremiumAccessForView(visitorId, restoredEmail || undefined);
+        accountPremium = consume.ok;
+      }
+    }
+
+    const unlockDeep = accountPremium || (isPaidInDb && (paidPlan === "19" || paidPlan === "39" || paidPlan === "88"));
+    const unlockTimeline = accountPremium || (isPaidInDb && (paidPlan === "39" || paidPlan === "88"));
+    const unlockQa = accountPremium || (isPaidInDb && paidPlan === "88");
 
     const freeResult = {
       ...result,
