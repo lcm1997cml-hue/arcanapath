@@ -438,3 +438,52 @@ export async function claimEmailBonusForVisitor(
     throw err;
   }
 }
+
+/**
+ * Restore access by email:
+ * - Source of truth: leads.free_limit / usage_count
+ * - Sync current visitor free limit so this browser can continue.
+ */
+export async function restoreAccessByEmailForVisitor(
+  visitorId: string,
+  email: string
+): Promise<{
+  restored: boolean;
+  remainingFreeCount: number;
+  message?: string;
+}> {
+  if (!isValidLeadEmail(email)) {
+    throw new Error("invalid email");
+  }
+
+  const normalizedEmail = normalizeLeadEmail(email);
+  const normalizedVisitorId = visitorId.trim();
+  const lead = await getLeadByEmail(normalizedEmail);
+  if (!lead) {
+    return { restored: false, remainingFreeCount: await getVisitorRemainingFree(normalizedVisitorId), message: "找不到此 email 的權限資料" };
+  }
+
+  const leadRemaining = Math.max(0, Number(lead.free_limit ?? 0) - Number(lead.usage_count ?? 0));
+  if (leadRemaining <= 0) {
+    return { restored: false, remainingFreeCount: await getVisitorRemainingFree(normalizedVisitorId), message: "此 email 目前沒有可恢復的可用次數" };
+  }
+
+  const visitor = await getOrCreateVisitorUsage(normalizedVisitorId);
+  const visitorUsage = Number(visitor.usage_count ?? 0);
+  const visitorCurrentRemaining = Math.max(0, Number(visitor.free_limit ?? 0) - visitorUsage);
+  const targetVisitorFreeLimit = visitorUsage + Math.max(visitorCurrentRemaining, leadRemaining);
+
+  const supabase = getSupabaseAdmin();
+  if (targetVisitorFreeLimit !== Number(visitor.free_limit ?? 0)) {
+    const { error } = await supabase
+      .from("visitor_usage")
+      .update({ free_limit: targetVisitorFreeLimit })
+      .eq("id", visitor.id);
+    if (error) throw error;
+  }
+
+  return {
+    restored: true,
+    remainingFreeCount: Math.max(visitorCurrentRemaining, leadRemaining),
+  };
+}

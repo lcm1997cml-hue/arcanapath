@@ -204,6 +204,8 @@ export default function ReadingClientPage() {
   const [remainingFreeHint, setRemainingFreeHint] = useState<number | null>(null);
   const [bonusEmail, setBonusEmail] = useState("");
   const [emailBonusLoading, setEmailBonusLoading] = useState(false);
+  const [restoreEmail, setRestoreEmail] = useState("");
+  const [restoreLoading, setRestoreLoading] = useState(false);
   const [creditsCheckoutLoading, setCreditsCheckoutLoading] = useState(false);
 
   useEffect(() => {
@@ -419,6 +421,41 @@ export default function ReadingClientPage() {
     }
   }, []);
 
+  const submitRestoreAccess = useCallback(async () => {
+    setRestoreLoading(true);
+    try {
+      const res = await fetch("/api/restore-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: restoreEmail.trim() }),
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!data?.ok) {
+        setToast(data?.error ?? "恢復失敗");
+        return;
+      }
+      if (typeof data.remainingFreeCount === "number") {
+        setRemainingFreeHint(data.remainingFreeCount);
+        try {
+          localStorage.setItem("arcana_remaining_free", String(data.remainingFreeCount));
+        } catch {
+          // ignore localStorage errors
+        }
+      }
+      setToast(data?.message ?? (data?.restored ? "已恢復可用權限" : "此 email 目前沒有可恢復內容"));
+      if (data?.restored) {
+        setRestoreEmail("");
+        await refreshRemainingFromServer(1);
+        router.refresh();
+      }
+    } catch {
+      setToast("網絡錯誤，請重試");
+    } finally {
+      setRestoreLoading(false);
+    }
+  }, [refreshRemainingFromServer, restoreEmail, router]);
+
   // ── Phase step indicator ───────────────────────────────────
   const phaseOrder: Phase[] = ["input", "shuffle", "select", "preview"];
   const stepIndex = phaseOrder.indexOf(phase as Phase);
@@ -539,6 +576,26 @@ export default function ReadingClientPage() {
                 剩餘可用占卜次數：{remainingFreeHint}
               </p>
             )}
+
+            <div className="rounded-xl border border-amber-800/35 bg-black/20 p-4 space-y-3">
+              <p className="text-amber-200 font-serif text-sm font-semibold">已付款 / 已有權限？輸入 email 恢復使用</p>
+              <input
+                type="email"
+                value={restoreEmail}
+                onChange={(e) => setRestoreEmail(e.target.value)}
+                placeholder="your@email.com"
+                autoComplete="email"
+                className="w-full bg-black/30 border border-amber-800/45 rounded-lg px-3 py-2.5 text-amber-100 placeholder:text-amber-900/50 font-serif text-sm focus:outline-none focus:border-amber-600/55"
+              />
+              <button
+                type="button"
+                onClick={() => void submitRestoreAccess()}
+                disabled={restoreLoading || !restoreEmail.trim()}
+                className="w-full border border-amber-700/45 text-amber-200 hover:text-amber-100 hover:border-amber-500/55 disabled:opacity-50 font-serif font-semibold py-2.5 rounded-lg transition-colors"
+              >
+                {restoreLoading ? "恢復中…" : "用 email 恢復權限"}
+              </button>
+            </div>
 
             {remainingFreeHint === 0 && (
               <div className="space-y-4">
