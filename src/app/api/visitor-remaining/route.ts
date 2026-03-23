@@ -22,6 +22,6 @@ export async function GET(req: NextRequest) {
     });
     return res;
   } catch {
-    return NextResponse.json({ ok: false, error: "讀取剩餘次數失敗" }, { status: 500 });
+    return NextResponse.json({ ok: true, remainingFreeCount: 1 });
   }
 }

@@ -205,6 +205,7 @@ type LeadRow = {
   free_limit: number;
   plan_type?: string | null;
   plan_credits?: number | null;
+  premium_expires_at?: string | null;
   plan_expires_at?: string | null;
 };
 
@@ -217,8 +218,56 @@ type VisitorUsageRow = {
   updated_at: string;
   plan_type?: string | null;
   plan_credits?: number | null;
+  premium_expires_at?: string | null;
   plan_expires_at?: string | null;
 };
+
+const LEAD_SELECT_WITH_PREMIUM = `
+  id,
+  email,
+  usage_count,
+  free_limit,
+  premium_expires_at,
+  plan_type,
+  plan_credits
+`;
+
+const LEAD_SELECT_WITH_PLAN_EXPIRES = `
+  id,
+  email,
+  usage_count,
+  free_limit,
+  plan_expires_at,
+  plan_type,
+  plan_credits
+`;
+
+const LEAD_SELECT_BASIC = "id,email,usage_count,free_limit";
+
+function normalizeLeadRow(raw: any): LeadRow {
+  return {
+    id: String(raw?.id ?? ""),
+    email: String(raw?.email ?? ""),
+    usage_count: Number(raw?.usage_count ?? 0),
+    free_limit: Number(raw?.free_limit ?? 0),
+    plan_type: raw?.plan_type ?? "free",
+    plan_credits: Number(raw?.plan_credits ?? 0),
+    premium_expires_at: raw?.premium_expires_at ?? null,
+    plan_expires_at: raw?.plan_expires_at ?? null,
+  };
+}
+
+async function getLeadByEmailSafeInternal(supabase: ReturnType<typeof getSupabaseAdmin>, normalizedEmail: string): Promise<LeadRow | null> {
+  const tries = [LEAD_SELECT_WITH_PREMIUM, LEAD_SELECT_WITH_PLAN_EXPIRES, LEAD_SELECT_BASIC] as const;
+  for (const sel of tries) {
+    const { data, error } = await supabase.from("leads").select(sel).eq("email", normalizedEmail).maybeSingle();
+    if (!error) return data ? normalizeLeadRow(data) : null;
+    const msg = String((error as any)?.message ?? "").toLowerCase();
+    const missingColumn = (error as any)?.code === "42703" || msg.includes("column") || msg.includes("schema cache");
+    if (!missingColumn || sel === LEAD_SELECT_BASIC) throw error;
+  }
+  return null;
+}
 
 export function normalizeLeadEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -231,13 +280,7 @@ export function isValidLeadEmail(email: string): boolean {
 export async function getLeadByEmail(email: string): Promise<LeadRow | null> {
   const normalizedEmail = normalizeLeadEmail(email);
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("leads")
-    .select("id,email,usage_count,free_limit,plan_type,plan_credits,plan_expires_at")
-    .eq("email", normalizedEmail)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as LeadRow | null) ?? null;
+  return getLeadByEmailSafeInternal(supabase, normalizedEmail);
 }
 
 export async function getOrCreateLeadByEmail(email: string): Promise<LeadRow> {
@@ -246,13 +289,24 @@ export async function getOrCreateLeadByEmail(email: string): Promise<LeadRow> {
   if (existing) return existing;
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const first = await supabase
     .from("leads")
     .insert({ email: normalizedEmail, usage_count: 0, free_limit: 0, plan_credits: 0 })
-    .select("id,email,usage_count,free_limit,plan_type,plan_credits,plan_expires_at")
+    .select(LEAD_SELECT_WITH_PREMIUM)
     .single();
-  if (error) throw error;
-  return data as LeadRow;
+  if (!first.error && first.data) return normalizeLeadRow(first.data);
+
+  const msg = String((first.error as any)?.message ?? "").toLowerCase();
+  const missingColumn = (first.error as any)?.code === "42703" || msg.includes("column");
+  if (!missingColumn) throw first.error;
+
+  const fallback = await supabase
+    .from("leads")
+    .insert({ email: normalizedEmail, usage_count: 0, free_limit: 0 })
+    .select(LEAD_SELECT_BASIC)
+    .single();
+  if (fallback.error) throw fallback.error;
+  return normalizeLeadRow(fallback.data);
 }
 
 export async function incrementLeadUsage(email: string): Promise<number> {
@@ -271,21 +325,49 @@ export async function incrementLeadUsage(email: string): Promise<number> {
 export async function getOrCreateVisitorUsage(visitorId: string): Promise<VisitorUsageRow> {
   const normalizedVisitorId = visitorId.trim();
   const supabase = getSupabaseAdmin();
-  const { data: existing, error: queryError } = await supabase
+  const fullSelect = "id,visitor_id,usage_count,free_limit,created_at,updated_at,plan_type,plan_credits,plan_expires_at,premium_expires_at";
+  const basicSelect = "id,visitor_id,usage_count,free_limit,created_at,updated_at";
+  let existing: any = null;
+  let queryError: any = null;
+  ({ data: existing, error: queryError } = await supabase
     .from("visitor_usage")
-    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at,plan_type,plan_credits,plan_expires_at")
+    .select(fullSelect)
     .eq("visitor_id", normalizedVisitorId)
-    .maybeSingle();
-  if (queryError) throw queryError;
+    .maybeSingle());
+  if (queryError) {
+    const msg = String(queryError?.message ?? "").toLowerCase();
+    const missingColumn = queryError?.code === "42703" || msg.includes("column") || msg.includes("schema cache");
+    if (!missingColumn) throw queryError;
+    const fallback = await supabase
+      .from("visitor_usage")
+      .select(basicSelect)
+      .eq("visitor_id", normalizedVisitorId)
+      .maybeSingle();
+    if (fallback.error) throw fallback.error;
+    existing = fallback.data;
+  }
   if (existing) return existing as VisitorUsageRow;
 
-  const { data, error } = await supabase
+  let inserted: any = null;
+  let insertErr: any = null;
+  ({ data: inserted, error: insertErr } = await supabase
     .from("visitor_usage")
     .insert({ visitor_id: normalizedVisitorId, usage_count: 0, free_limit: 1, plan_credits: 0 })
-    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at,plan_type,plan_credits,plan_expires_at")
-    .single();
-  if (error) throw error;
-  return data as VisitorUsageRow;
+    .select(fullSelect)
+    .single());
+  if (insertErr) {
+    const msg = String(insertErr?.message ?? "").toLowerCase();
+    const missingColumn = insertErr?.code === "42703" || msg.includes("column");
+    if (!missingColumn) throw insertErr;
+    const fallback = await supabase
+      .from("visitor_usage")
+      .insert({ visitor_id: normalizedVisitorId, usage_count: 0, free_limit: 1 })
+      .select(basicSelect)
+      .single();
+    if (fallback.error) throw fallback.error;
+    inserted = fallback.data;
+  }
+  return inserted as VisitorUsageRow;
 }
 
 export async function incrementVisitorUsagePersistent(visitorId: string): Promise<number> {
@@ -306,14 +388,26 @@ export async function addVisitorFreeCredits(visitorId: string, credits: number):
   const nextFreeLimit = Number(row.free_limit ?? 1) + Math.max(0, credits);
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const fullSelect = "id,visitor_id,usage_count,free_limit,created_at,updated_at,plan_type,plan_credits,plan_expires_at,premium_expires_at";
+  const basicSelect = "id,visitor_id,usage_count,free_limit,created_at,updated_at";
+  const first = await supabase
     .from("visitor_usage")
     .update({ free_limit: nextFreeLimit })
     .eq("id", row.id)
-    .select("id,visitor_id,usage_count,free_limit,created_at,updated_at,plan_type,plan_credits,plan_expires_at")
+    .select(fullSelect)
     .single();
-  if (error) throw error;
-  return data as VisitorUsageRow;
+  if (!first.error) return first.data as VisitorUsageRow;
+  const msg = String((first.error as any)?.message ?? "").toLowerCase();
+  const missingColumn = (first.error as any)?.code === "42703" || msg.includes("column");
+  if (!missingColumn) throw first.error;
+  const fallback = await supabase
+    .from("visitor_usage")
+    .update({ free_limit: nextFreeLimit })
+    .eq("id", row.id)
+    .select(basicSelect)
+    .single();
+  if (fallback.error) throw fallback.error;
+  return fallback.data as VisitorUsageRow;
 }
 
 export async function getVisitorRemainingFree(visitorId: string): Promise<number> {
@@ -333,11 +427,24 @@ export async function addLeadFreeCredits(email: string, credits: number): Promis
     .from("leads")
     .update({ free_limit: nextFreeLimit })
     .eq("id", lead.id)
-    .select("id,email,usage_count,free_limit,plan_type,plan_credits,plan_expires_at")
+    .select(LEAD_SELECT_WITH_PREMIUM)
     .single();
-  if (error) throw error;
+  if (!error) {
+    console.log("[addLeadFreeCredits] free_limit after:", nextFreeLimit);
+    return normalizeLeadRow(data);
+  }
+  const msg = String((error as any)?.message ?? "").toLowerCase();
+  const missingColumn = (error as any)?.code === "42703" || msg.includes("column");
+  if (!missingColumn) throw error;
+  const fallback = await supabase
+    .from("leads")
+    .update({ free_limit: nextFreeLimit })
+    .eq("id", lead.id)
+    .select(LEAD_SELECT_BASIC)
+    .single();
+  if (fallback.error) throw fallback.error;
   console.log("[addLeadFreeCredits] free_limit after:", nextFreeLimit);
-  return data as LeadRow;
+  return normalizeLeadRow(fallback.data);
 }
 
 export type LeadPlanAccess = {
@@ -356,54 +463,60 @@ function isPlanExpired(planExpiresAt?: string | null, now = new Date()): boolean
 }
 
 export function evaluateLeadPlanAccess(lead: LeadRow, now = new Date()): LeadPlanAccess {
-  const isExpired = isPlanExpired(lead.plan_expires_at, now);
+  const planType = lead.plan_type ?? "free";
+  const credits = Number(lead.plan_credits ?? 0);
+  const expiresRaw = lead.premium_expires_at ?? lead.plan_expires_at ?? null;
+  const expires = expiresRaw ? new Date(expiresRaw) : null;
+  const isExpired = expires ? expires.getTime() <= now.getTime() : false;
   if (isExpired) {
-    return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: true, expiresAt: lead.plan_expires_at ?? null };
+    return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: true, expiresAt: expiresRaw };
   }
 
-  if (lead.plan_type === "unlimited") {
+  if (planType === "unlimited") {
     return {
       hasAccess: true,
       mode: "unlimited",
-      creditsLeft: Number(lead.plan_credits ?? 0),
+      creditsLeft: credits,
       isExpired: false,
-      expiresAt: lead.plan_expires_at ?? null,
+      expiresAt: expiresRaw,
     };
   }
 
-  const credits = Math.max(0, Number(lead.plan_credits ?? 0));
-  if (credits > 0) {
+  const safeCredits = Math.max(0, credits);
+  if (safeCredits > 0) {
     return {
       hasAccess: true,
       mode: "credits",
-      creditsLeft: credits,
+      creditsLeft: safeCredits,
       isExpired: false,
-      expiresAt: lead.plan_expires_at ?? null,
+      expiresAt: expiresRaw,
     };
   }
 
-  return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: false, expiresAt: lead.plan_expires_at ?? null };
+  return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: false, expiresAt: expiresRaw };
 }
 
 type PlanLike = {
   plan_type?: string | null;
   plan_credits?: number | null;
+  premium_expires_at?: string | null;
   plan_expires_at?: string | null;
 };
 
 function evaluatePlanLikeAccess(plan: PlanLike, now = new Date()): LeadPlanAccess {
-  const isExpired = isPlanExpired(plan.plan_expires_at, now);
+  const expRaw = plan.premium_expires_at ?? plan.plan_expires_at ?? null;
+  const isExpired = isPlanExpired(expRaw, now);
   if (isExpired) {
-    return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: true, expiresAt: plan.plan_expires_at ?? null };
+    return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: true, expiresAt: expRaw };
   }
   if (plan.plan_type === "unlimited") {
-    return { hasAccess: true, mode: "unlimited", creditsLeft: Number(plan.plan_credits ?? 0), isExpired: false, expiresAt: plan.plan_expires_at ?? null };
+    return { hasAccess: true, mode: "unlimited", creditsLeft: Number(plan.plan_credits ?? 0), isExpired: false, expiresAt: expRaw };
   }
   const credits = Math.max(0, Number(plan.plan_credits ?? 0));
   if (credits > 0) {
-    return { hasAccess: true, mode: "credits", creditsLeft: credits, isExpired: false, expiresAt: plan.plan_expires_at ?? null };
+    return { hasAccess: true, mode: "credits", creditsLeft: credits, isExpired: false, expiresAt: expRaw };
   }
-  return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: false, expiresAt: plan.plan_expires_at ?? null };
+  return { hasAccess: false, mode: "none", creditsLeft: 0, isExpired: false, expiresAt: expRaw };
 }
 
 export async function hasPremiumAccess(
@@ -474,15 +587,25 @@ export async function consumePremiumAccessForView(
   if (access.source === "lead" && normalizedEmail) {
     const lead = await getLeadByEmail(normalizedEmail);
     if (!lead) return { ok: false, mode: "none", creditsLeft: 0, source: "none", reason: "no_access" };
-    const { error } = await supabase.from("leads").update({ plan_credits: next }).eq("id", lead.id);
-    if (error) throw error;
+    const leadUpd = await supabase.from("leads").update({ plan_credits: next }).eq("id", lead.id);
+    if (leadUpd.error) {
+      const msg = String((leadUpd.error as any)?.message ?? "").toLowerCase();
+      const missingColumn = (leadUpd.error as any)?.code === "42703" || msg.includes("column");
+      if (!missingColumn) throw leadUpd.error;
+      return { ok: false, mode: "none", creditsLeft: 0, source: "none", reason: "no_access" };
+    }
     await supabase.from("visitor_usage").update({ plan_credits: next }).eq("visitor_id", normalizedVisitorId);
     return { ok: true, mode: "credits", creditsLeft: next, source: "lead" };
   }
 
   const visitor = await getOrCreateVisitorUsage(normalizedVisitorId);
-  const { error } = await supabase.from("visitor_usage").update({ plan_credits: next }).eq("id", visitor.id);
-  if (error) throw error;
+  const upd = await supabase.from("visitor_usage").update({ plan_credits: next }).eq("id", visitor.id);
+  if (upd.error) {
+    const msg = String((upd.error as any)?.message ?? "").toLowerCase();
+    const missingColumn = (upd.error as any)?.code === "42703" || msg.includes("column");
+    if (!missingColumn) throw upd.error;
+    return { ok: false, mode: "none", creditsLeft: 0, source: "none", reason: "no_access" };
+  }
   return { ok: true, mode: "credits", creditsLeft: next, source: "visitor" };
 }
 
@@ -505,8 +628,13 @@ export async function consumeLeadPlanUnlock(email: string): Promise<{
 
   const nextCredits = Math.max(0, access.creditsLeft - 1);
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.from("leads").update({ plan_credits: nextCredits }).eq("id", lead.id);
-  if (error) throw error;
+  const upd = await supabase.from("leads").update({ plan_credits: nextCredits }).eq("id", lead.id);
+  if (upd.error) {
+    const msg = String((upd.error as any)?.message ?? "").toLowerCase();
+    const missingColumn = (upd.error as any)?.code === "42703" || msg.includes("column");
+    if (!missingColumn) throw upd.error;
+    return { ok: false, mode: "none", creditsLeft: 0, reason: "no_plan_access" };
+  }
   return { ok: true, mode: "credits", creditsLeft: nextCredits };
 }
 
@@ -678,11 +806,17 @@ export async function restoreAccessByEmailForVisitor(
     plan_credits: planAccess.mode === "credits" ? planAccess.creditsLeft : 0,
     plan_expires_at: planAccess.expiresAt,
   };
-  const { error } = await supabase
+  const primaryUpdate = await supabase
     .from("visitor_usage")
     .update(visitorUpdatePayload)
     .eq("id", visitor.id);
-  if (error) throw error;
+  if (primaryUpdate.error) {
+    const msg = String((primaryUpdate.error as any)?.message ?? "").toLowerCase();
+    const missingColumn = (primaryUpdate.error as any)?.code === "42703" || msg.includes("column");
+    if (!missingColumn) throw primaryUpdate.error;
+    const fallback = await supabase.from("visitor_usage").update({ free_limit: targetVisitorFreeLimit }).eq("id", visitor.id);
+    if (fallback.error) throw fallback.error;
+  }
 
   return {
     restored: true,
