@@ -76,6 +76,10 @@ export async function POST(req: NextRequest) {
     let drawnCards;
     try {
       drawnCards = deserializeDrawnCards(serializedCards);
+      const uniq = new Set((drawnCards ?? []).map((c: any) => c?.card?.id));
+      if (uniq.size !== 3) {
+        return NextResponse.json({ ok: false, error: "同一次抽牌不可重複牌，請重新抽牌" }, { status: 400 });
+      }
       console.log("[reading] cards deserialized");
     } catch (e) {
       return NextResponse.json({ ok: false, error: "牌陣資料錯誤" }, { status: 400 });

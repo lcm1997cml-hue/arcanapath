@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 export const dynamic = "force-dynamic";
 
 const CHECKOUT_KIND = "reading_credits";
-const USD_CENTS = 900; // US$9.00
+const HKD_CENTS = 900; // HK$9.00
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,8 +27,8 @@ export async function POST(req: NextRequest) {
         {
           quantity: 1,
           price_data: {
-            currency: "usd",
-            unit_amount: USD_CENTS,
+            currency: "hkd",
+            unit_amount: HKD_CENTS,
             product_data: {
               name: "ArcanaPath · 3 次占卜額度",
               description: "額外 3 次塔羅占卜（不影響完整報告解鎖）",

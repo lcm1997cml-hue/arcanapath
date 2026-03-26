@@ -277,7 +277,7 @@ export async function renderShareImageToDataUrlAsync(payload: ShareImagePayload)
   y += 28;
   ctx.fillStyle = "rgba(233, 213, 255, 0.88)";
   ctx.font = "22px ui-serif, Georgia, serif";
-  const sumLines = wrapLines(ctx, payload.trioSummary, W - margin * 2 - 88, 2);
+  const sumLines = wrapLines(ctx, payload.trioSummary, W - margin * 2 - 88, 3);
   sumLines.forEach((line) => {
     ctx.fillText(line, W / 2, y);
     y += 26;
@@ -296,6 +296,16 @@ function firstSentence(text: string): string {
   if (!t) return "";
   const cut = t.split(/[。！？.!?]/).filter(Boolean)[0]?.trim() ?? t;
   return cut.slice(0, 120);
+}
+
+function smartClip(text: string, max: number): string {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  if (cleaned.length <= max) return cleaned;
+  const cut = cleaned.slice(0, max);
+  const idx = Math.max(cut.lastIndexOf("。"), cut.lastIndexOf("！"), cut.lastIndexOf("？"), cut.lastIndexOf("，"), cut.lastIndexOf("、"), cut.lastIndexOf(" "));
+  if (idx >= Math.floor(max * 0.55)) return `${cut.slice(0, idx).trim()}…`;
+  return `${cut.trim()}…`;
 }
 
 /** Resolve card face file + labels from full DrawnCard or slim { cardId } rows in JSONB. */
@@ -383,17 +393,25 @@ export function buildShareImagePayloadFromReading(
   }
   if (interpretationBrief.length > 160) interpretationBrief = `${interpretationBrief.slice(0, 157)}…`;
 
+  const trioBase = [mainAxis, cr0, cr1]
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" ");
   const trioSummary =
-    headline ||
-    firstSentence(mainAxis).slice(0, 36) ||
-    (cards.length ? `${cards.map((c) => c.name_zh).join(" · ")}` : "").slice(0, 40) ||
-    "三張牌為你點出此刻的能量走向。";
+    smartClip(trioBase, 120) ||
+    smartClip(headline, 100) ||
+    smartClip(
+      cards.length
+        ? `三張牌共同指出：${cards.map((c) => c.name_zh).join("、")} 的訊息正在互相呼應，重點在於先釐清內在狀態，再按節奏採取行動。`
+        : "三張牌共同指出你正處於轉折期，先穩定步伐，再按重點逐步行動。",
+      120
+    );
 
   return {
     question: result.question || "—",
     cards: cards.length ? cards : positions.map((p) => ({ position: p, name_zh: "—", reversed: false, imageFile: "" })),
     interpretationBrief,
-    trioSummary: trioSummary.slice(0, 80),
+    trioSummary,
     brandDomain: brandDomain || "ArcanaPath",
   };
 }

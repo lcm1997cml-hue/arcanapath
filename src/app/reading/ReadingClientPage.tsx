@@ -625,7 +625,7 @@ export default function ReadingClientPage() {
                 <div className="rounded-xl border border-violet-900/40 bg-violet-950/20 p-4 space-y-3">
                   <p className="text-amber-200 font-serif text-base font-semibold">想立即再占卜？</p>
                   <p className="text-amber-500/75 text-xs font-serif leading-relaxed">
-                    即時支付 $9（USD），即可獲得 3 次占卜機會（可重複購買）
+                    即時支付 HK$9，即可獲得 3 次占卜機會（可重複購買）
                   </p>
                   <button
                     type="button"
@@ -633,7 +633,7 @@ export default function ReadingClientPage() {
                     disabled={creditsCheckoutLoading}
                     className="w-full bg-violet-800 hover:bg-violet-700 disabled:opacity-50 text-white font-serif font-semibold py-2.5 rounded-lg transition-colors border border-violet-500/30"
                   >
-                    {creditsCheckoutLoading ? "前往 Stripe…" : "US $9 · 購買 3 次占卜"}
+                    {creditsCheckoutLoading ? "前往 Stripe…" : "HK$9 · 購買 3 次占卜"}
                   </button>
                 </div>
               </div>
@@ -747,7 +747,7 @@ export default function ReadingClientPage() {
             </div>
 
             <div className="rounded-xl border border-violet-900/35 bg-violet-950/15 p-3 space-y-2">
-              <p className="text-amber-200 font-serif text-sm font-semibold">US $9 · 3 次占卜</p>
+              <p className="text-amber-200 font-serif text-sm font-semibold">HK$9 · 3 次占卜</p>
               <p className="text-amber-500/70 text-xs font-serif">可一日內多次購買，付款後即加額度</p>
               <button
                 type="button"
