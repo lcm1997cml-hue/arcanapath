@@ -1,11 +1,24 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { getReading } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const result = await getReading(id);
+  const q = (result?.question ?? "免費塔羅占卜結果").replace(/\s+/g, " ").trim().slice(0, 70);
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://arcanapath.com").replace(/\/$/, "");
+  return {
+    title: `免費塔羅占卜結果｜ArcanaPath`,
+    description: `免費三張牌塔羅占卜與 AI 解讀：${q}`,
+    alternates: { canonical: `${appUrl}/r/${id}` },
+  };
 }
 
 export default async function PublicSharePage({ params }: Props) {
@@ -32,7 +45,8 @@ export default async function PublicSharePage({ params }: Props) {
       <div className="max-w-md mx-auto px-4 py-8 space-y-5">
         <div className="text-center space-y-2">
           <div className="text-amber-500 font-serif text-xl font-semibold">✦ ArcanaPath</div>
-          <h1 className="text-amber-100 font-serif text-base leading-relaxed">「{result.question}」</h1>
+          <h1 className="text-amber-100 font-serif text-base leading-relaxed">免費塔羅占卜結果｜ArcanaPath</h1>
+          <h2 className="text-amber-300/85 font-serif text-sm leading-relaxed">AI塔羅牌解讀｜「{result.question}」</h2>
         </div>
 
         <div className="rounded-xl border border-amber-800/30 bg-amber-950/25 p-4 space-y-3">

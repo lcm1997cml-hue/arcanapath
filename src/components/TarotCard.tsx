@@ -249,7 +249,7 @@ function CardFront({
       {src && !imgError ? (
         <img
           src={src}
-          alt={card.name_zh}
+          alt={`${card.name_zh}｜塔羅牌 三張牌占卜 AI解讀`}
           className="absolute inset-0 w-full h-full object-cover"
           style={{ transform: orientationTransform, transformOrigin: "center" }}
           onError={onImgError}

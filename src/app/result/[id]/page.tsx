@@ -10,6 +10,7 @@
 
 import React from "react";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { consumePremiumAccessForView, getReading } from "@/lib/store";
 import { getCurrentUser, getRolePolicy } from "@/lib/auth";
@@ -22,6 +23,20 @@ export const dynamic = "force-dynamic";
 interface Props {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ paid?: string; plan?: string; planId?: string }>;
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const result = await getReading(id);
+  const q = (result?.question ?? "塔羅牌解讀").replace(/\s+/g, " ").trim().slice(0, 80);
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://arcanapath.com").replace(/\/$/, "");
+  return {
+    title: `AI塔羅牌解讀｜${q}`,
+    description: "免費三張牌塔羅占卜結果，包含塔羅牌解析與 AI 塔羅解讀。",
+    alternates: {
+      canonical: `${appUrl}/tarot-reading/${id}`,
+    },
+  };
 }
 
 export default async function ResultPage({ params, searchParams }: Props) {
@@ -81,18 +96,43 @@ export default async function ResultPage({ params, searchParams }: Props) {
   const dateStr    = new Date(result.createdAt).toLocaleDateString("zh-HK", {
     year: "numeric", month: "long", day: "numeric",
   });
+  const seoH1 = `AI塔羅牌解讀｜${result.question}`;
+  const seoSummary = String(
+    result.freeReading?.mainAxis ?? result.freeReading?.headline ?? result.freeReading?.nextStep ?? "免費三張牌塔羅占卜結果。"
+  )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: "AI塔羅牌解讀",
+    description: "免費三張牌塔羅占卜結果",
+    author: {
+      "@type": "Organization",
+      name: "ArcanaPath",
+    },
+  };
 
   return (
-    <ResultClientPage
-      id={id}
-      result={result as any}
-      topicLabel={topicLabel}
-      dateStr={dateStr}
-      isPaidQuery={isPaidQuery}
-      paidPlan={normalizedQueryPlan ?? paidPlan}
-      isUnlocked={isUnlocked}
-      userRole={user?.role}
-      isLoggedIn={!!user}
-    />
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <section className="sr-only">
+        <h1>{seoH1}</h1>
+        <h2>三張牌塔羅分析</h2>
+        <p>{seoSummary}</p>
+      </section>
+      <ResultClientPage
+        id={id}
+        result={result as any}
+        topicLabel={topicLabel}
+        dateStr={dateStr}
+        isPaidQuery={isPaidQuery}
+        paidPlan={normalizedQueryPlan ?? paidPlan}
+        isUnlocked={isUnlocked}
+        userRole={user?.role}
+        isLoggedIn={!!user}
+      />
+    </>
   );
 }
